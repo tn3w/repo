@@ -3,6 +3,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 
 use actix_web::{get, web, App, HttpResponse, HttpServer, Result};
 use chrono::{DateTime, Local};
@@ -17,8 +18,79 @@ use tera::{Context, Tera};
 use walkdir::WalkDir;
 use zip::write::ExtendedFileOptions;
 use zip::{write::FileOptions, ZipWriter};
+use html_escape::encode_text;
+use ammonia::Builder;
+use lazy_static::lazy_static;
 
 const DEFAULT_WORKSPACE_ROOT: &str = "/etc/tn3wrepo/Projects";
+const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10MB limit
+
+lazy_static! {
+    static ref AMMONIA_BUILDER: Builder<'static> = {
+        let mut builder = Builder::new();
+        let mut tags = HashSet::new();
+        tags.insert("p");
+        tags.insert("br");
+        tags.insert("h1");
+        tags.insert("h2");
+        tags.insert("h3");
+        tags.insert("h4");
+        tags.insert("h5");
+        tags.insert("h6");
+        tags.insert("strong");
+        tags.insert("em");
+        tags.insert("code");
+        tags.insert("pre");
+        tags.insert("blockquote");
+        tags.insert("ul");
+        tags.insert("ol");
+        tags.insert("li");
+        tags.insert("span");
+        tags.insert("div");
+
+        let mut tag_attributes = HashMap::new();
+        let mut a_attrs = HashSet::new();
+        a_attrs.insert("href");
+        a_attrs.insert("title");
+        tag_attributes.insert("a", a_attrs);
+
+        let mut code_attrs = HashSet::new();
+        code_attrs.insert("class");
+        code_attrs.insert("style");
+        tag_attributes.insert("code", code_attrs);
+
+        let mut span_attrs = HashSet::new();
+        span_attrs.insert("class");
+        span_attrs.insert("style");
+        tag_attributes.insert("span", span_attrs);
+
+        let mut div_attrs = HashSet::new();
+        div_attrs.insert("class");
+        div_attrs.insert("style");
+        tag_attributes.insert("div", div_attrs);
+
+        let mut pre_attrs = HashSet::new();
+        pre_attrs.insert("class");
+        pre_attrs.insert("style");
+        tag_attributes.insert("pre", pre_attrs);
+
+        let mut url_schemes = HashSet::new();
+        url_schemes.insert("http");
+        url_schemes.insert("https");
+        url_schemes.insert("mailto");
+
+        let mut generic_attributes = HashSet::new();
+        generic_attributes.insert("style");
+
+        builder
+            .tags(tags)
+            .tag_attributes(tag_attributes)
+            .link_rel(Some("noopener noreferrer"))
+            .url_schemes(url_schemes)
+            .generic_attributes(generic_attributes);
+        builder
+    };
+}
 
 struct AppConfig {
     workspace_root: String,
@@ -101,21 +173,43 @@ fn get_gitignore(project_path: &Path) -> Option<Gitignore> {
     }
 }
 
+fn is_symlink(path: &Path) -> bool {
+    path.read_link().is_ok()
+}
+
 fn is_path_allowed(path: &Path, check_gitignore: bool, workspace_root: &str) -> bool {
     if !path.exists() {
         return false;
     }
 
-    if path == Path::new(workspace_root) {
-        return true;
+    if is_symlink(path) {
+        return false;
     }
 
-    let rel_path = match path.strip_prefix(workspace_root) {
+    let canonical_path = match path.canonicalize() {
         Ok(p) => p,
         Err(_) => return false,
     };
 
-    let project_root = PathBuf::from(workspace_root).join(
+    let canonical_workspace = match Path::new(workspace_root).canonicalize() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    if !canonical_path.starts_with(&canonical_workspace) {
+        return false;
+    }
+
+    if canonical_path == canonical_workspace {
+        return true;
+    }
+
+    let rel_path = match canonical_path.strip_prefix(&canonical_workspace) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    let project_root = canonical_workspace.join(
         rel_path
             .components()
             .next()
@@ -126,23 +220,21 @@ fn is_path_allowed(path: &Path, check_gitignore: bool, workspace_root: &str) -> 
         return false;
     }
 
-    if rel_path.components().any(|c| c.as_os_str() == ".git") {
+    if rel_path.components().any(|c| {
+        let name = c.as_os_str().to_string_lossy();
+        (name.starts_with('.') && name != ".gitignore") || 
+        (name == "ABOUT" && !path.ends_with("ABOUT"))
+    }) {
         return false;
     }
 
-    if path.file_name().map_or(false, |n| n == "ABOUT") {
-        let backtrace = std::backtrace::Backtrace::capture();
-        let is_from_get_project_content = backtrace.to_string().contains("get_project_content");
-        return is_from_get_project_content;
-    }
-
-    if path == project_root {
+    if canonical_path == project_root {
         return true;
     }
 
     if check_gitignore {
         if let Some(gitignore) = get_gitignore(&project_root) {
-            let rel_to_project = path.strip_prefix(&project_root).unwrap_or(rel_path);
+            let rel_to_project = canonical_path.strip_prefix(&project_root).unwrap_or(rel_path);
             if gitignore.matched(rel_to_project, false).is_ignore() {
                 return false;
             }
@@ -153,18 +245,57 @@ fn is_path_allowed(path: &Path, check_gitignore: bool, workspace_root: &str) -> 
 }
 
 fn get_file_info(path: &Path, workspace_root: &str) -> Option<FileInfo> {
-    let metadata = path.metadata().ok()?;
-    let name = path.file_name()?.to_string_lossy().into_owned();
-    let rel_path = path.strip_prefix(workspace_root).ok()?;
+    // Get metadata, but don't follow symlinks
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(m) => m,
+        Err(_) => return None,
+    };
+    
+    // Skip symlinks
+    if metadata.file_type().is_symlink() {
+        return None;
+    }
+
+    // Skip files larger than the limit
+    if !metadata.is_dir() && metadata.len() > MAX_FILE_SIZE {
+        return None;
+    }
+
+    // Get the filename, return None if we can't get it
+    let name = match path.file_name() {
+        Some(name) => name.to_string_lossy().into_owned(),
+        None => return None,
+    };
+
+    // Convert both paths to canonical form for reliable path operations
+    let canonical_path = match path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return None,
+    };
+
+    let canonical_workspace = match Path::new(workspace_root).canonicalize() {
+        Ok(p) => p,
+        Err(_) => return None,
+    };
+
+    // Get relative path from workspace root
+    let rel_path = match canonical_path.strip_prefix(&canonical_workspace) {
+        Ok(p) => p.to_string_lossy().into_owned(),
+        Err(_) => return None,
+    };
+
+    // Get last modified time
+    let last_modified = match metadata.modified() {
+        Ok(time) => DateTime::<Local>::from(time).format("%b %d, %Y %H:%M").to_string(),
+        Err(_) => return None,
+    };
 
     Some(FileInfo {
         name,
-        path: rel_path.to_string_lossy().into_owned(),
+        path: rel_path,
         is_dir: metadata.is_dir(),
         size: format_size(metadata.len(), BINARY),
-        last_modified: DateTime::<Local>::from(metadata.modified().ok()?)
-            .format("%b %d, %Y %H:%M")
-            .to_string(),
+        last_modified,
     })
 }
 
@@ -192,7 +323,9 @@ fn highlight_code(path: &Path, content: &str, ss: &SyntaxSet, ts: &ThemeSet) -> 
     let dark_theme = &ts.themes["base16-eighties.dark"];
 
     let process_html = |html: String| {
-        let html = html.replace(r#"<pre style="background-color:#2b303b;">"#, "<pre>");
+        let clean_html = AMMONIA_BUILDER.clean(&html).to_string();
+
+        let html = clean_html.replace(r#"<pre style="background-color:#2b303b;">"#, "<pre>");
 
         let lines: Vec<&str> = content.lines().collect();
         let line_count = lines.len();
@@ -217,11 +350,11 @@ fn highlight_code(path: &Path, content: &str, ss: &SyntaxSet, ts: &ThemeSet) -> 
 
     let light_html = highlighted_html_for_string(content, ss, syntax, light_theme)
         .map(|html| process_html(html))
-        .unwrap_or_else(|_| content.to_string());
+        .unwrap_or_else(|_|encode_text(&content).to_string());
 
     let dark_html = highlighted_html_for_string(content, ss, syntax, dark_theme)
         .map(|html| process_html(html))
-        .unwrap_or_else(|_| content.to_string());
+        .unwrap_or_else(|_| encode_text(&content).to_string());
 
     ThemedCode {
         light: light_html,
@@ -237,14 +370,18 @@ fn render_markdown(content: &str, base_path: &str) -> String {
     options.insert(Options::ENABLE_TASKLISTS);
 
     let parser = Parser::new_ext(content, options);
+    
+    // Convert to HTML first
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
 
-    let html_with_fixed_urls = html_output
-        .replace("src=\"./", &format!("src=\"/{}/", base_path))
-        .replace("href=\"./", &format!("href=\"/{}/", base_path));
+    // Clean the HTML output with ammonia to only allow safe elements and attributes
+    let clean_html = AMMONIA_BUILDER.clean(&html_output).to_string();
 
-    html_with_fixed_urls
+    // Fix relative URLs
+    clean_html
+        .replace("src=\"./", &format!("src=\"/{}/", base_path))
+        .replace("href=\"./", &format!("href=\"/{}/", base_path))
 }
 
 fn parse_about_file(path: &Path) -> Option<(Vec<String>, Option<String>)> {
@@ -335,7 +472,22 @@ fn create_zip_file(directory_path: &Path, workspace_root: &str) -> Option<Vec<u8
 }
 
 fn is_project_root(path: &Path, workspace_root: &str) -> bool {
-    path.parent() == Some(Path::new(workspace_root))
+    let canonical_path = match path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    let canonical_workspace = match Path::new(workspace_root).canonicalize() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    let rel_path = match canonical_path.strip_prefix(&canonical_workspace) {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+
+    rel_path.components().count() == 1 && canonical_path.is_dir()
 }
 
 fn get_directory_contents(
@@ -416,18 +568,37 @@ async fn download_file(
     let workspace_root = &data.config.workspace_root;
     let file_path = PathBuf::from(workspace_root).join(&path_str);
 
-    if !is_path_allowed(&file_path, true, workspace_root) {
+    let canonical_path = match file_path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return Err(actix_web::error::ErrorNotFound("File not found")),
+    };
+
+    if !is_path_allowed(&canonical_path, true, workspace_root) {
         return Err(actix_web::error::ErrorNotFound("File not found"));
     }
 
-    if file_path.is_dir() {
-        if let Some(zip_data) = create_zip_file(&file_path, &workspace_root) {
-            let filename = format!("{}.zip", file_path.file_name().unwrap().to_string_lossy());
+    if is_symlink(&canonical_path) {
+        return Err(actix_web::error::ErrorForbidden("Access denied"));
+    }
+
+    let metadata = match fs::symlink_metadata(&canonical_path) {
+        Ok(m) => m,
+        Err(_) => return Err(actix_web::error::ErrorNotFound("File not found")),
+    };
+
+    if metadata.len() > MAX_FILE_SIZE {
+        return Err(actix_web::error::ErrorForbidden("File too large"));
+    }
+
+    if canonical_path.is_dir() {
+        if let Some(zip_data) = create_zip_file(&canonical_path, &workspace_root) {
+            let filename = format!("{}.zip", canonical_path.file_name().unwrap().to_string_lossy());
             return Ok(HttpResponse::Ok()
                 .content_type("application/zip")
-                .append_header((
+                .insert_header(("X-Content-Type-Options", "nosniff"))
+                .insert_header((
                     "Content-Disposition",
-                    format!("attachment; filename=\"{}\"", filename),
+                    format!("attachment; filename=\"{}\"", encode_text(&filename)),
                 ))
                 .body(zip_data));
         }
@@ -436,16 +607,16 @@ async fn download_file(
         ));
     }
 
-    let filename = file_path
+    let filename = canonical_path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("download");
 
-    let content_type = match file_path.extension().and_then(|ext| ext.to_str()) {
+    let content_type = match canonical_path.extension().and_then(|ext| ext.to_str()) {
         Some("txt") => "text/plain",
-        Some("html") | Some("htm") => "text/html",
+        Some("html") | Some("htm") => "text/plain",
         Some("css") => "text/css",
-        Some("js") => "application/javascript",
+        Some("js") => "text/javascript",
         Some("json") => "application/json",
         Some("png") => "image/png",
         Some("jpg") | Some("jpeg") => "image/jpeg",
@@ -453,22 +624,23 @@ async fn download_file(
         Some("pdf") => "application/pdf",
         Some("zip") => "application/zip",
         Some("md") => "text/markdown",
-        Some("rs") => "text/rust",
-        Some("py") => "text/python",
-        Some("go") => "text/golang",
-        Some("java") => "text/java",
-        Some("c") | Some("cpp") | Some("h") | Some("hpp") => "text/c",
+        Some("rs") => "text/plain",
+        Some("py") => "text/plain",
+        Some("go") => "text/plain",
+        Some("java") => "text/plain",
+        Some("c") | Some("cpp") | Some("h") | Some("hpp") => "text/plain",
         _ => "application/octet-stream",
     };
 
-    let file_content =
-        fs::read(&file_path).map_err(|_| actix_web::error::ErrorNotFound("File not found"))?;
+    let file_content = fs::read(&canonical_path)
+        .map_err(|_| actix_web::error::ErrorNotFound("File not found"))?;
 
     Ok(HttpResponse::Ok()
         .content_type(content_type)
-        .append_header((
+        .insert_header(("X-Content-Type-Options", "nosniff"))
+        .insert_header((
             "Content-Disposition",
-            format!("attachment; filename=\"{}\"", filename),
+            format!("attachment; filename=\"{}\"", encode_text(filename)),
         ))
         .body(file_content))
 }
@@ -506,24 +678,38 @@ async fn view_path(
         let body = data
             .tera
             .render("index.html", &context.into_context())
-            .map_err(|e| {
-                eprintln!("Template error: {}", e);
-                actix_web::error::ErrorInternalServerError("Template error")
-            })?;
+            .map_err(|_| actix_web::error::ErrorInternalServerError("Internal server error"))?;
 
-        return Ok(HttpResponse::Ok().content_type("text/html").body(body));
+        return Ok(HttpResponse::Ok()
+            .content_type("text/html; charset=utf-8")
+            .insert_header(("X-Content-Type-Options", "nosniff"))
+            .insert_header(("X-Frame-Options", "DENY"))
+            .insert_header(("X-XSS-Protection", "1; mode=block"))
+            .body(body));
     }
 
     let file_path = PathBuf::from(workspace_root).join(&path_str);
 
-    if !is_path_allowed(&file_path, true, workspace_root) {
+    let canonical_path = match file_path.canonicalize() {
+        Ok(p) => p,
+        Err(err) => {
+            println!("Error: {}", err);
+            return Err(actix_web::error::ErrorNotFound("Path not found"))
+        },
+    };
+
+    if !is_path_allowed(&canonical_path, true, workspace_root) {
         return Err(actix_web::error::ErrorNotFound("Path not found"));
     }
 
-    let current_dir = if file_path.is_dir() {
-        file_path.clone()
+    if is_symlink(&canonical_path) {
+        return Err(actix_web::error::ErrorForbidden("Access denied"));
+    }
+
+    let current_dir = if canonical_path.is_dir() {
+        canonical_path.clone()
     } else {
-        file_path.parent().unwrap_or(&file_path).to_path_buf()
+        canonical_path.parent().unwrap_or(&canonical_path).to_path_buf()
     };
 
     let dir_contents = get_directory_contents(&current_dir, true, workspace_root);
@@ -539,7 +725,7 @@ async fn view_path(
     let mut context = TemplateData {
         contents: Vec::new(),
         file_path: Some(path_str),
-        is_dir: file_path.is_dir(),
+        is_dir: canonical_path.is_dir(),
         dir_contents,
         parent_dir,
         workspace_root: workspace_root.clone(),
@@ -555,19 +741,28 @@ async fn view_path(
         tags: Vec::new(),
     };
 
-    if !file_path.is_dir() {
-        if is_binary_file(&file_path) {
+    if !canonical_path.is_dir() {
+        let metadata = match fs::symlink_metadata(&canonical_path) {
+            Ok(m) => m,
+            Err(_) => return Err(actix_web::error::ErrorNotFound("File not found")),
+        };
+
+        if metadata.len() > MAX_FILE_SIZE {
+            return Err(actix_web::error::ErrorForbidden("File too large"));
+        }
+
+        if is_binary_file(&canonical_path) {
             return Err(actix_web::error::ErrorBadRequest("Binary file"));
         }
 
-        let content = fs::read_to_string(&file_path)
+        let content = fs::read_to_string(&canonical_path)
             .map_err(|_| actix_web::error::ErrorNotFound("File not found"))?;
 
-        let file_info = get_file_info(&file_path, workspace_root)
+        let file_info = get_file_info(&canonical_path, workspace_root)
             .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
 
         let highlighted_code =
-            highlight_code(&file_path, &content, &data.syntax_set, &data.theme_set);
+            highlight_code(&canonical_path, &content, &data.syntax_set, &data.theme_set);
 
         context.highlighted_dark_code = Some(highlighted_code.dark);
         context.highlighted_light_code = Some(highlighted_code.light);
@@ -578,55 +773,61 @@ async fn view_path(
         let body = data
             .tera
             .render("code_view.html", &context.into_context())
-            .map_err(|e| {
-                eprintln!("Template error: {}", e);
-                actix_web::error::ErrorInternalServerError("Template error")
-            })?;
+            .map_err(|_| actix_web::error::ErrorInternalServerError("Internal server error"))?;
 
-        return Ok(HttpResponse::Ok().content_type("text/html").body(body));
+        return Ok(HttpResponse::Ok()
+            .content_type("text/html; charset=utf-8")
+            .insert_header(("X-Content-Type-Options", "nosniff"))
+            .insert_header(("X-Frame-Options", "DENY"))
+            .insert_header(("X-XSS-Protection", "1; mode=block"))
+            .body(body));
     }
 
-    context.contents = get_directory_contents(&file_path, true, workspace_root);
+    context.contents = get_directory_contents(&canonical_path, true, workspace_root);
 
-    if !is_project_root(&file_path, workspace_root) {
+    if !is_project_root(&canonical_path, workspace_root) {
         let body = data
             .tera
             .render("code_view.html", &context.into_context())
-            .map_err(|e| {
-                eprintln!("Template error: {}", e);
-                actix_web::error::ErrorInternalServerError("Template error")
-            })?;
+            .map_err(|_| actix_web::error::ErrorInternalServerError("Internal server error"))?;
 
-        return Ok(HttpResponse::Ok().content_type("text/html").body(body));
+        return Ok(HttpResponse::Ok()
+            .content_type("text/html; charset=utf-8")
+            .insert_header(("X-Content-Type-Options", "nosniff"))
+            .insert_header(("X-Frame-Options", "DENY"))
+            .insert_header(("X-XSS-Protection", "1; mode=block"))
+            .body(body));
     }
 
     let (content, tags, source_file, about_sentence) =
-        get_project_content(&file_path, &workspace_root);
+        get_project_content(&canonical_path, &workspace_root);
     context.project_name = Some(
-        file_path
+        canonical_path
             .file_name()
             .unwrap()
             .to_string_lossy()
             .into_owned(),
     );
-    context.about_content = content;
+    context.about_content = content.map(|c| c.to_string());
     context.content_source = source_file;
-    context.about_sentence = about_sentence;
-    context.tags = tags;
+    context.about_sentence = about_sentence.map(|s| encode_text(&s).to_string());
+    context.tags = tags.into_iter().map(|t| encode_text(&t).to_string()).collect();
 
     let body = data
         .tera
         .render("repo_view.html", &context.into_context())
-        .map_err(|e| {
-            eprintln!("Template error: {}", e);
-            actix_web::error::ErrorInternalServerError("Template error")
-        })?;
+        .map_err(|_| actix_web::error::ErrorInternalServerError("Internal server error"))?;
 
-    Ok(HttpResponse::Ok().content_type("text/html").body(body))
+    Ok(HttpResponse::Ok()
+        .content_type("text/html; charset=utf-8")
+        .insert_header(("X-Content-Type-Options", "nosniff"))
+        .insert_header(("X-Frame-Options", "DENY"))
+        .insert_header(("X-XSS-Protection", "1; mode=block"))
+        .body(body))
 }
 
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> std::io::Result<()> {    
     let args: Vec<String> = env::args().collect();
     let workspace_root: PathBuf = if args.len() > 1 {
         PathBuf::from(&args[1])
@@ -675,6 +876,20 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(app_state.clone()))
+            .wrap(
+                actix_web::middleware::DefaultHeaders::new()
+                    .add(("Strict-Transport-Security", "max-age=31536000; includeSubDomains".to_string()))
+                    .add((
+                        "Content-Security-Policy",
+                        "default-src 'self'; \
+                         script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
+                         style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; \
+                         font-src 'self' https://cdnjs.cloudflare.com; \
+                         img-src 'self' data: https:; \
+                         connect-src 'self';".to_string()
+                    ))
+                    .add(("Referrer-Policy", "strict-origin-when-cross-origin".to_string()))
+            )
             .service(index)
             .service(download_file)
             .service(view_path)
