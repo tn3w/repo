@@ -1,0 +1,36 @@
+[package]
+name = "tn3wrepo"
+version = "0.1.0"
+edition = "2021"
+authors = ["TN3W <tn3w@protonmail.com>"]
+description = "A personal project portfolio featuring Markdown rendering and syntax highlighting for all your coding endeavors."
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "abort"
+strip = true
+debug = 0
+overflow-checks = false
+incremental = false
+
+[profile.release.package."*"]
+codegen-units = 1
+opt-level = 3
+
+[dependencies]
+actix-web = "4.5.1"
+tera = "1.19.1"
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = "1.0.114"
+syntect = "5.2.0"
+pulldown-cmark = "0.10.0"
+ignore = "0.4.22"
+chrono = "0.4.35"
+humansize = "2.1.3"
+walkdir = "2.5.0"
+mime_guess = "2.0.4"
+zip = "0.6.6"
+anyhow = "1.0.80"
+thiserror = "1.0.57"

@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>TN3W - Repository Portfolio</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+        <style>
+            :root {
+                --background: #0d1117;
+                --second-background: #161b22;
+                --color: #c9d1d9;
+                --second-color: #8b949e;
+                --border: #30363d;
+            }
+
+            @media (prefers-color-scheme: light) {
+                :root {
+                    --background: #ffffff;
+                    --second-background: #f6f8fa;
+                    --color: #24292f;
+                    --second-color: #57606a;
+                    --border: #d0d7de;
+                }
+            }
+
+            body {
+                margin: 0;
+                padding: 0;
+                background-color: var(--background);
+                color: var(--color);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+                min-height: 100vh;
+                display: flex;
+                flex-direction: column;
+            }
+
+            ::-webkit-scrollbar {
+                width: 8px;
+            }
+
+            ::-webkit-scrollbar-track {
+                background: var(--background);
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: var(--color);
+                border-radius: 4px;
+            }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: rgba(100, 100, 100, 0.7);
+            }
+
+            .portfolio-header {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                z-index: 1000;
+                background-color: var(--second-background);
+                border-bottom: 1px solid var(--border);
+                backdrop-filter: blur(10px);
+            }
+
+            .header-content {
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 1rem;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .logo {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                font-size: 1.5rem;
+                font-weight: 600;
+                color: #58a6ff;
+            }
+
+            .logo i {
+                font-size: 1.2em;
+            }
+
+            .header-nav {
+                display: flex;
+                gap: 1.5rem;
+            }
+
+            .nav-link {
+                color: var(--color);
+                text-decoration: none;
+                padding: 0.5rem 1rem;
+                border-radius: 6px;
+                transition: all 0.3s ease;
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+
+            .nav-link:hover {
+                background-color: rgba(88, 166, 255, 0.15);
+                color: #58a6ff;
+            }
+
+            .hero {
+                min-height: 85vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                position: relative;
+                overflow: hidden;
+                margin-top: 60px;
+            }
+
+            .hero-content {
+                text-align: center;
+                z-index: 1;
+                padding: 2rem;
+            }
+
+            .hero-background {
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: 
+                    radial-gradient(circle at 10% 20%, rgba(88, 166, 255, 0.15) 0%, transparent 20%),
+                    radial-gradient(circle at 90% 80%, rgba(88, 166, 255, 0.15) 0%, transparent 20%);
+                opacity: 0.5;
+                filter: blur(100px);
+                animation: backgroundFloat 20s ease-in-out infinite;
+            }
+
+            @keyframes backgroundFloat {
+                0%, 100% { transform: translate(0, 0); }
+                25% { transform: translate(5%, 5%); }
+                50% { transform: translate(-5%, 2%); }
+                75% { transform: translate(3%, -5%); }
+            }
+
+            .glitch {
+                font-size: 5rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                position: relative;
+                text-shadow: 0.05em 0 0 rgba(88, 166, 255, 0.15), 
+                            -0.025em -0.05em 0 rgba(88, 166, 255, 0.15),
+                            0.025em 0.05em 0 rgba(88, 166, 255, 0.15);
+                animation: glitch 2s infinite;
+                margin: 0;
+                color: #58a6ff;
+            }
+
+            .glitch span {
+                position: absolute;
+                top: 0;
+                left: 0;
+            }
+
+            @keyframes glitch {
+                0% { transform: translate(0); }
+                20% { transform: translate(-2px, 2px); }
+                40% { transform: translate(-2px, -2px); }
+                60% { transform: translate(2px, 2px); }
+                80% { transform: translate(2px, -2px); }
+                100% { transform: translate(0); }
+            }
+
+            .hero-subtitle {
+                font-size: 1.5rem;
+                color: var(--second-color);
+                margin: 1rem 0 2rem;
+            }
+
+            .hero-tags {
+                display: flex;
+                gap: 1rem;
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+
+            .hero-tag {
+                background-color: rgba(88, 166, 255, 0.15);
+                color: #58a6ff;
+                padding: 0.5rem 1.5rem;
+                border-radius: 2em;
+                font-size: 0.9rem;
+                font-weight: 500;
+            }
+
+            .projects {
+                padding: 4rem 1rem;
+                max-width: 1200px;
+                margin: 0 auto;
+                width: 100%;
+                box-sizing: border-box;
+            }
+
+            .section-title {
+                font-size: 2.5rem;
+                color: var(--color);
+                margin-bottom: 2rem;
+                text-align: center;
+            }
+
+            .projects-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                gap: 2rem;
+                padding: 1rem;
+            }
+
+            .project-card {
+                background-color: var(--background);
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                overflow: hidden;
+                text-decoration: none;
+                color: var(--color);
+                transition: all 0.3s ease;
+                position: relative;
+            }
+
+            .project-content {
+                padding: 1.5rem;
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+                height: 200px;
+                position: relative;
+            }
+
+            .project-icon {
+                font-size: 2rem;
+                color: #58a6ff;
+            }
+
+            .project-title {
+                font-size: 1.25rem;
+                margin: 0;
+                color: var(--color);
+            }
+
+            .project-meta {
+                color: var(--second-color);
+                font-size: 0.9rem;
+            }
+
+            .project-hover {
+                position: absolute;
+                inset: 0;
+                background-color: #58a6ff;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+            }
+
+            .project-card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+                border-color: #58a6ff;
+            }
+
+            .project-card:hover .project-hover {
+                opacity: 0.95;
+            }
+
+            .view-project {
+                color: var(--color);
+                font-weight: 600;
+                font-size: 1.1rem;
+            }
+
+            .portfolio-footer {
+                background-color: var(--second-background);
+                border-top: 1px solid var(--border);
+                padding: 2rem 1rem;
+                margin-top: auto;
+            }
+
+            .footer-content {
+                max-width: 1200px;
+                margin: 0 auto;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .footer-links {
+                display: flex;
+                gap: 1rem;
+            }
+
+            .footer-link {
+                color: var(--second-color);
+                font-size: 1.5rem;
+                transition: color 0.3s ease;
+            }
+
+            .footer-link:hover {
+                color: #58a6ff;
+            }
+
+            @media (max-width: 768px) {
+                .glitch {
+                    font-size: 3rem;
+                }
+
+                .hero-subtitle {
+                    font-size: 1.2rem;
+                }
+
+                .projects-grid {
+                    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                }
+
+                .footer-content {
+                    flex-direction: column;
+                    gap: 1rem;
+                    text-align: center;
+                }
+            }
+
+            @media (max-width: 480px) {
+                .header-content {
+                    flex-direction: column;
+                    gap: 1rem;
+                    text-align: center;
+                }
+
+                .glitch {
+                    font-size: 2rem;
+                }
+
+                .hero-subtitle {
+                    font-size: 1rem;
+                }
+
+                .projects-grid {
+                    grid-template-columns: 1fr;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <header class="portfolio-header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-code"></i>
+                    <span>TN3W Repo</span>
+                </div>
+                <nav class="header-nav">
+                    <a href="#projects" class="nav-link">Projects</a>
+                    <a href="https://github.com/TN3W" class="nav-link" target="_blank">
+                        <i class="fab fa-github"></i>
+                        GitHub
+                    </a>
+                </nav>
+            </div>
+        </header>
+        <section class="hero">
+            <div class="hero-content">
+                <h1 class="glitch" data-text="TN3W">TN3W</h1>
+                <p class="hero-subtitle">Building the future, one project at a time</p>
+                <div class="hero-tags">
+                    <span class="hero-tag">Developer</span>
+                    <span class="hero-tag">Open Source</span>
+                    <span class="hero-tag">Hobbyist</span>
+                </div>
+            </div>
+            <div class="hero-background"></div>
+        </section>
+        <section class="projects" id="projects">
+            <h2 class="section-title">Projects</h2>
+            <div class="projects-grid">
+                {% for item in contents %}
+                {% if item.is_dir %}
+                <a href="/{{ item.path }}" class="project-card">
+                    <div class="project-content">
+                        <div class="project-icon">
+                            <i class="fas fa-folder"></i>
+                        </div>
+                        <h3 class="project-title">{{ item.name }}</h3>
+                        <div class="project-meta">
+                            <span class="project-date">{{ item.last_modified }}</span>
+                        </div>
+                        <div class="project-hover">
+                            <span class="view-project">View Project</span>
+                        </div>
+                    </div>
+                </a>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </section>
+        <footer class="portfolio-footer">
+            <div class="footer-content">
+                <p>© 2024 TN3W. All rights reserved.</p>
+                <div class="footer-links">
+                    <a href="https://github.com/TN3W" target="_blank" class="footer-link">
+                        <i class="fab fa-github"></i>
+                    </a>
+                </div>
+            </div>
+        </footer>
+    </body>
+</html>

@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{% if is_dir %}{{ file_path }} - Directory{% else %}{{ file_path }} - Code Viewer{% endif %}</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+        <style>
+            :root {
+                /* GitHub Dark Theme Colors - Updated for consistency */
+                --color-canvas-default: #0d1117;
+                --color-canvas-subtle: #161b22;
+                --color-border-default: #30363d;
+                --color-border-muted: #21262d;
+                --color-fg-default: #c9d1d9;
+                --color-fg-muted: #8b949e;
+                --color-fg-subtle: #6e7681;
+                --color-btn-bg: #21262d;
+                --color-btn-hover-bg: #30363d;
+                --color-btn-active-bg: #282e33;
+                --color-header-bg: #161b22;
+                --color-primer-shadow-focus: 0 0 0 3px #0c2d6b;
+                --color-primer-border-active: #1f6feb;
+                --color-success-fg: #3fb950;
+                --color-danger-fg: #f85149;
+                --color-done-fg: #a371f7;
+                --color-accent-fg: #58a6ff;
+                --color-accent-subtle: rgba(56, 139, 253, 0.1);
+                --color-code-bg: #0d1117;
+            }
+
+            pre[style*="background-color"] {
+                background-color: var(--color-code-bg) !important;
+            }
+
+            /* Inline code */
+            code {
+                background-color: var(--color-code-bg);
+                border-radius: 3px;
+                padding: 0.2em 0.4em;
+                font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+            }
+
+            .light-code {
+                display: none;
+            }
+
+            @media (prefers-color-scheme: light) {
+                :root {
+                    /* GitHub Light Theme Colors */
+                    --color-canvas-default: #ffffff;
+                    --color-canvas-subtle: #f6f8fa;
+                    --color-border-default: #d0d7de;
+                    --color-border-muted: #d8dee4;
+                    --color-fg-default: #24292f;
+                    --color-fg-muted: #57606a;
+                    --color-fg-subtle: #6e7781;
+                    --color-btn-bg: #f6f8fa;
+                    --color-btn-hover-bg: #f3f4f6;
+                    --color-btn-active-bg: #ebecf0;
+                    --color-header-bg: #f6f8fa;
+                    --color-primer-shadow-focus: 0 0 0 3px rgba(9, 105, 218, 0.3);
+                    --color-primer-border-active: #0969da;
+                    --color-success-fg: #1a7f37;
+                    --color-danger-fg: #cf222e;
+                    --color-done-fg: #8250df;
+                    --color-accent-fg: #0969da;
+                    --color-accent-subtle: rgba(9, 105, 218, 0.1);
+                }
+
+                /* Light theme folder icon color */
+                .item-icon .fa-folder {
+                    color: #54a3ff;
+                }
+
+                /* Light theme active item background */
+                .directory-tree .directory-item.active .directory-link {
+                    background-color: var(--color-accent-subtle);
+                    color: var(--color-accent-fg);
+                }
+
+                .dark-code {
+                    display: none;
+                }
+
+                .light-code {
+                    display: unset;
+                }
+            }
+
+            body {
+                margin: 0;
+                padding: 0;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+                font-size: 14px;
+                line-height: 1.5;
+                background-color: var(--color-canvas-default);
+                color: var(--color-fg-default);
+                height: 100vh;
+            }
+
+            ::-webkit-scrollbar {
+                width: 8px;
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: var(--color-fg-default);
+                border-radius: 4px;
+            }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: rgba(100, 100, 100, 0.7);
+            }
+
+            /* App Layout */
+            .app-container {
+                display: grid;
+                grid-template-columns: 300px 1fr;
+                height: 100vh;
+                overflow: hidden;
+            }
+
+            .header-title span {
+                margin-left: 5px;
+            }
+
+            /* Directory Panel */
+            .directory-panel {
+                background-color: var(--color-canvas-subtle);
+                border-right: 1px solid var(--color-border-default);
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+            }
+
+            .directory-header {
+                padding: 16px;
+                background-color: var(--color-canvas-subtle);
+                border-bottom: 1px solid var(--color-border-default);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .directory-title {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                color: var(--color-fg-default);
+                font-size: 16px;
+                font-weight: 600;
+            }
+
+            .directory-title i {
+                color: #54aeff;
+            }
+
+            .directory-actions {
+                display: flex;
+                gap: 8px;
+            }
+
+            .directory-tree {
+                overflow-y: auto;
+                flex-grow: 1;
+                padding: 8px 0;
+            }
+
+            .directory-tree .directory-item {
+                border: none;
+                margin: 1px 0;
+            }
+
+            .directory-tree .directory-link {
+                padding: 4px 12px;
+                display: grid;
+                grid-template-columns: 20px 1fr;
+                gap: 8px;
+                color: var(--color-fg-muted);
+                text-decoration: none;
+                border-radius: 0;
+            }
+
+            .directory-tree .directory-item.active .directory-link {
+                background-color: var(--color-accent-subtle);
+                color: var(--color-accent-fg);
+            }
+
+            .directory-tree .directory-link:hover {
+                background-color: var(--color-btn-hover-bg);
+            }
+
+            /* Main Content */
+            .main-content {
+                height: 100vh;
+                overflow-y: auto;
+                padding: 0 16px 16px;
+            }
+
+            /* Breadcrumb styles */
+            .breadcrumb {
+                display: flex;
+                align-items: center;
+                flex-wrap: wrap;
+                list-style: none;
+                margin: 0;
+                padding: 0;
+                min-width: 0;
+                overflow: hidden;
+            }
+
+            .breadcrumb-item {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                color: var(--color-fg-muted);
+                text-decoration: none;
+                padding: 8px;
+                border-radius: 6px;
+                white-space: nowrap;
+            }
+
+            .breadcrumb-item:hover {
+                color: var(--color-accent-fg);
+                text-decoration: none;
+                background-color: var(--color-accent-subtle);
+            }
+
+            .breadcrumb-separator {
+                color: var(--color-fg-muted);
+                margin: 0 4px;
+                flex-shrink: 0;
+            }
+
+            /* Repository-specific breadcrumb styles */
+            .nav-bar {
+                position: sticky;
+                top: 0;
+                z-index: 100;
+                background-color: var(--color-canvas-default);
+                border-bottom: 1px solid var(--color-border-default);
+                padding: 12px 0;
+            }
+
+            .nav-left {
+                display: flex;
+                align-items: center;
+                min-width: 0; /* Allow flex shrinking */
+            }
+
+            .logo i {
+                color: var(--color-accent-fg);
+            }
+
+            .nav-right {
+                display: flex;
+                align-items: center;
+                flex-shrink: 0; /* Prevent GitHub link from shrinking */
+            }
+
+            .nav-link {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                color: var(--color-fg-muted);
+                text-decoration: none;
+                padding: 8px 12px;
+                border-radius: 6px;
+                transition: color 0.2s, background-color 0.2s;
+            }
+
+            .nav-link:hover {
+                color: var(--color-fg-default);
+                background-color: var(--color-btn-hover-bg);
+            }
+
+            /* Directory Listing */
+            .directory-container {
+                border: 1px solid var(--color-border-default);
+                border-radius: 6px;
+                background-color: var(--color-canvas-subtle);
+            }
+
+            .directory-item {
+                border-bottom: 1px solid var(--color-border-default);
+            }
+
+            .directory-item:last-child {
+                border-bottom: none;
+            }
+
+            .directory-link {
+                display: grid;
+                grid-template-columns: 24px 1fr;
+                gap: 12px;
+                align-items: center;
+                padding: 6px 16px;
+                color: var(--color-fg-default);
+                text-decoration: none;
+                transition: background-color 0.2s;
+            }
+
+            .directory-link:hover {
+                background-color: var(--color-btn-hover-bg);
+            }
+
+            .item-icon {
+                color: var(--color-fg-muted);
+                width: 24px;
+                text-align: center;
+            }
+
+            .item-icon .fa-folder {
+                color: #54aeff;
+            }
+
+            .item-name {
+                font-weight: 500;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            /* Remove unused styles */
+            .item-meta,
+            .item-download {
+                display: none;
+            }
+
+            .file-navigation {
+                position: sticky;
+                top: 0;
+                z-index: 100;
+                background-color: var(--color-canvas-default);
+                padding: 12px 0;
+            }
+
+            .file-info {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+            }
+
+            .file-main-info {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .file-name {
+                font-size: 16px;
+                color: var(--color-fg-default);
+            }
+
+            .file-name-row {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                align-self: flex-start;
+            }
+
+            .file-meta {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+                color: var(--color-fg-muted);
+                font-size: 12px;
+                margin-left: 10px;
+            }
+
+            .meta-item {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .file-info-divider {
+                width: 1px;
+                height: 18px;
+                background-color: var(--color-border-default);
+                margin: 0 8px;
+            }
+
+            .code-container {
+                position: relative;
+                border: 1px solid var(--color-border-default);
+                border-radius: 6px;
+                background-color: var(--color-canvas-subtle);
+                margin-bottom: 24px;
+            }
+
+            .code-header {
+                padding: 8px 16px;
+                background-color: var(--color-canvas-subtle);
+                border-bottom: 1px solid var(--color-border-default);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .file-path {
+                color: var(--color-fg-default);
+                font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+                font-size: 12px;
+            }
+
+            .code-actions {
+                display: flex;
+                gap: 8px;
+            }
+
+            .btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 32px;
+                height: 32px;
+                padding: 0;
+                font-size: 14px;
+                white-space: nowrap;
+                vertical-align: middle;
+                cursor: pointer;
+                user-select: none;
+                border: 1px solid var(--color-border-default);
+                border-radius: 6px;
+                appearance: none;
+                text-decoration: none;
+                background-color: var(--color-btn-bg);
+                color: var(--color-fg-default);
+                transition: 0.2s cubic-bezier(0.3, 0, 0.5, 1);
+                transition-property: color, background-color, border-color;
+            }
+
+            .btn:hover {
+                background-color: var(--color-btn-hover-bg);
+                border-color: var(--color-border-muted);
+                text-decoration: none;
+                color: var(--color-fg-default);
+            }
+
+            .btn-text {
+                display: none;
+            }
+
+            .code-body {
+                padding: 0 16px;
+                overflow-x: auto;
+            }
+
+            .highlight {
+                background: transparent;
+            }
+
+            .linenos {
+                color: var(--color-fg-subtle);
+                text-align: right;
+                padding-right: 10px;
+                user-select: none;
+            }
+
+            .close-nav {
+                display: none;
+                padding: 0.5rem;
+                font-size: 1.25rem;
+                color: var(--color-fg-muted);
+                background: transparent;
+                border: none;
+                cursor: pointer;
+            }
+
+            .close-nav:hover {
+                color: var(--color-fg-default);
+            }
+
+            /* Responsive styles */
+            @media (max-width: 1024px) {
+                .app-container {
+                    grid-template-columns: 250px 1fr;
+                }
+            }
+
+            @media (max-width: 850px) {
+                .main-content {
+                    padding: 0 12px 12px;
+                }
+
+                .breadcrumb {
+                    margin: 0;
+                }
+
+                .code-header {
+                    padding: 12px 16px;
+                    display: grid;
+                    grid-template-columns: 1fr auto;
+                    align-items: start;
+                    gap: 16px;
+                }
+
+                .file-info {
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 8px;
+                }
+
+                .file-main-info {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 8px;
+                }
+
+                .file-meta {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 12px;
+                    margin-left: 0;
+                }
+
+                .code-actions {
+                    align-self: flex-start;
+                    padding-top: 4px;
+                    display: flex;
+                    gap: 8px;
+                }
+            }
+
+            @media (max-width: 768px) {
+                .file-info {
+                    flex-direction: column;
+                    align-items: flex-start;
+                }
+
+                .breadcrumb {
+                    padding-right: 60px;
+                }
+
+                .directory-panel {
+                    position: fixed;
+                    left: -300px;
+                    top: 0;
+                    bottom: 0;
+                    width: 300px;
+                    z-index: 1000;
+                    transition: left 0.3s ease;
+                }
+
+                .nav-open .directory-panel {
+                    left: 0;
+                    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+                }
+
+                .close-nav {
+                    display: block;
+                }
+
+                .app-container {
+                    grid-template-columns: 1fr;
+                }
+            }
+
+            @media (max-width: 480px) {
+                .directory-panel {
+                    width: 100%;
+                    left: -100%;
+                }
+
+                .file-meta {
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 8px;
+                }
+
+                .meta-item {
+                    width: 100%;
+                }
+
+                .breadcrumb {
+                    font-size: 12px;
+                }
+
+                .directory-header {
+                    padding: 12px;
+                }
+
+                .code-body {
+                    padding: 12px;
+                }
+
+                pre {
+                    font-size: 11px;
+                }
+
+                .code-header {
+                    padding: 12px;
+                }
+            }
+
+            /* Dark overlay for mobile navigation */
+            .nav-open::before {
+                content: '';
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 999;
+            }
+
+            .tag {
+                display: inline-flex;
+                align-items: center;
+                padding: 4px 12px;
+                font-size: 12px;
+                font-weight: 500;
+                border-radius: 2em;
+                background-color: var(--color-accent-subtle);
+                color: var(--color-accent-fg);
+            }
+
+            .about-header {
+                margin-bottom: 16px;
+            }
+
+            .about-header h2 {
+                font-size: 16px;
+                font-weight: 600;
+                margin: 0;
+            }
+
+            .about-content {
+                color: var(--color-fg-default);
+                font-size: 14px;
+                line-height: 1.5;
+            }
+
+            .files-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 16px;
+                background-color: var(--color-canvas-subtle);
+                border: 1px solid var(--color-border-default);
+                border-bottom: none;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+            }
+
+            .files-header h2 {
+                font-size: 16px;
+                font-weight: 600;
+                margin: 0;
+            }
+
+            .files-actions {
+                display: flex;
+                gap: 8px;
+            }
+
+            /* Code with line numbers */
+            .code-with-lines {
+                display: flex;
+                width: 100%;
+                overflow-x: auto;
+                background-color: var(--color-canvas-subtle);
+                border-radius: 6px;
+            }
+
+            .line-numbers {
+                flex: 0 0 auto;
+                padding: 16px 12px;
+                text-align: right;
+                border-right: 1px solid var(--color-border-default);
+                user-select: none;
+                color: var(--color-fg-subtle);
+            }
+
+            .line-number {
+                display: block;
+                font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+                font-size: 12px;
+                line-height: 20px;
+                color: var(--color-fg-subtle);
+                white-space: pre;
+                height: 20px;
+            }
+
+            .code-content {
+                flex: 1 1 auto;
+                overflow-x: auto;
+                padding: 16px;
+                background-color: var(--color-canvas-subtle);
+            }
+
+            .code-content pre {
+                margin: 0;
+                background-color: transparent !important;
+                border: none;
+                padding: 0;
+                line-height: 20px;
+            }
+
+            .code-content code {
+                display: block;
+                line-height: 20px;
+                font-size: 12px;
+                tab-size: 4;
+                font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+            }
+
+            /* Syntax highlighting line height */
+            .highlight span {
+                line-height: 20px;
+                height: 20px;
+                display: inline-block;
+            }
+
+            /* Ensure line numbers don't get copied */
+            .line-numbers::selection {
+                background: transparent;
+            }
+
+            .line-numbers::-moz-selection {
+                background: transparent;
+            }
+
+            .line-number::selection {
+                background: transparent;
+            }
+
+            .line-number::-moz-selection {
+                background: transparent;
+            }
+
+            /* Code container styling */
+            .code-container {
+                border: 1px solid var(--color-border-default);
+                border-radius: 6px;
+                overflow: hidden;
+            }
+
+            .code-body {
+                padding: 0;
+                overflow-x: auto;
+                background-color: var(--color-canvas-subtle);
+            }
+
+            /* Base navigation styles */
+            .nav-content {
+                width: 100%;
+                padding: 0 16px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                box-sizing: border-box;
+            }
+
+            /* Code view specific navigation */
+            .file-navigation .nav-content {
+                padding: 0;
+            }
+
+            .file-navigation .nav-left {
+                display: flex;
+                align-items: center;
+                min-width: 0;
+            }
+
+            .file-navigation .nav-right {
+                display: flex;
+                align-items: center;
+                flex-shrink: 0;
+            }
+
+            /* Common navigation elements */
+            .nav-link {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                color: var(--color-fg-muted);
+                text-decoration: none;
+                padding: 8px 12px;
+                border-radius: 6px;
+                transition: color 0.2s, background-color 0.2s;
+                white-space: nowrap;
+            }
+
+            .nav-link:hover {
+                color: var(--color-fg-default);
+                background-color: var(--color-btn-hover-bg);
+            }
+
+            .mobile-link {
+                display: none;
+                padding: 0.5rem;
+                font-size: 1.25rem;
+                color: var(--color-fg-default);
+                background: var(--color-canvas-subtle);
+                border: 1px solid var(--color-border-default);
+                border-radius: 6px;
+                cursor: pointer;
+            }
+
+            .mobile-link i {
+                display: flex;
+            }
+
+            /* Responsive styles */
+            @media (max-width: 768px) {
+                .nav-content {
+                    padding: 0 8px;
+                }
+
+                .github-link {
+                    display: none !important;
+                }
+
+                .mobile-link {
+                    display: unset;
+                }
+
+                .breadcrumb-item span {
+                    display: none;
+                }
+
+                .breadcrumb-item i {
+                    margin-right: 0;
+                }
+
+                .nav-left {
+                    width: 100%;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="app-container">
+            <!-- Side Directory Panel -->
+            <div class="directory-panel">
+                <div class="directory-header">
+                    <div class="header-title">
+                        <i class="fas fa-book"></i>
+                        <span>Repository</span>
+                    </div>
+                    <button class="close-nav" aria-label="Close navigation">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="directory-tree">
+                    {% if parent_dir %}
+                    <div class="directory-item">
+                        <a href="/{{ parent_dir }}" class="directory-link">
+                            <div class="item-icon">
+                                <i class="fas fa-level-up-alt"></i>
+                            </div>
+                            <div class="item-name">..</div>
+                        </a>
+                    </div>
+                    {% endif %}
+                    {% for item in dir_contents %}
+                    <div class="directory-item {% if item.path == file_path %}active{% endif %}">
+                        <a href="/{{ item.path }}" class="directory-link">
+                            <div class="item-icon">
+                                {% if item.is_dir %}
+                                <i class="fas fa-folder"></i>
+                                {% else %}
+                                <i class="far fa-file-code"></i>
+                                {% endif %}
+                            </div>
+                            <div class="item-name">{{ item.name }}</div>
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="main-content">
+                <div class="file-navigation">
+                    <div class="nav-content">
+                        <div class="nav-left">
+                            <div class="breadcrumb">
+                                <a href="/" class="breadcrumb-item">
+                                    <i class="fas fa-code"></i>
+                                    <span>TN3W Repo</span>
+                                </a>
+                                {% if file_path %}
+                                    {% set parts = [] %}
+                                    {% for part in file_path | split(pat="/") %}
+                                        {% set_global parts = parts | concat(with=part) %}
+                                        <span class="breadcrumb-separator">/</span>
+                                        <a href="/{{ parts | join(sep="/") }}" class="breadcrumb-item">{{ part }}</a>
+                                    {% endfor %}
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="nav-right">
+                            <button class="nav-link mobile-link" aria-label="Toggle navigation">
+                                <i class="fas fa-bars"></i>
+                            </button>
+                            <a href="https://github.com/TN3W" class="nav-link github-link" target="_blank">
+                                <i class="fab fa-github"></i>
+                                <span>GitHub</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                {% if is_dir %}
+                <div class="directory-container">
+                    <div class="directory-header">
+                        <div class="directory-title">
+                            <i class="fas fa-folder-open"></i>
+                            <span>{{ file_path | split(pat="/") | last | default(value="Root") }}</span>
+                        </div>
+                        <div class="directory-actions">
+                            <a href="/download/{{ file_path }}" class="btn" title="Download as ZIP">
+                                <i class="fas fa-download"></i>
+                                <span class="btn-text">Download ZIP</span>
+                            </a>
+                        </div>
+                    </div>
+                    {% for item in contents %}
+                    <div class="directory-item">
+                        <a href="/{{ item.path }}" class="directory-link">
+                            <div class="item-icon">
+                                {% if item.is_dir %}
+                                <i class="fas fa-folder"></i>
+                                {% else %}
+                                <i class="far fa-file-code"></i>
+                                {% endif %}
+                            </div>
+                            <div class="item-name">{{ item.name }}</div>
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="code-container">
+                    <div class="code-header">
+                        <div class="file-info">
+                            <div class="file-main-info">
+                                <div class="file-name-row">
+                                    <span class="file-icon">
+                                        <i class="far fa-file-code"></i>
+                                    </span>
+                                    <strong class="file-name">{{ file_path | split(pat="/") | last }}</strong>
+                                </div>
+                                <div class="file-meta">
+                                    <span class="meta-item">
+                                        <i class="fas fa-list-ol"></i>
+                                        {{ lines_count }} lines
+                                    </span>
+                                    <span class="meta-item">
+                                        <i class="fas fa-weight-hanging"></i>
+                                        {{ file_size }}
+                                    </span>
+                                    <span class="meta-item">
+                                        <i class="far fa-clock"></i>
+                                        {{ last_modified }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="code-actions">
+                            <button class="btn" id="copy-btn" onclick="copyCode()" title="Copy code">
+                                <i class="far fa-copy"></i>
+                                <span class="btn-text">Copy</span>
+                            </button>
+                            <a href="/download/{{ file_path }}" class="btn" title="Download file">
+                                <i class="fas fa-download"></i>
+                                <span class="btn-text">Download</span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="code-body">
+                        <div class="dark-code"><div class="code-with-lines">{{ highlighted_dark_code | safe }}</div></div>
+                        <div class="light-code"><div class="code-with-lines">{{ highlighted_light_code | safe }}</div></div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <script>
+            // Mobile navigation
+            const appContainer = document.querySelector('.app-container');
+            const navToggle = document.querySelector('.mobile-link');
+            const closeNav = document.querySelector('.close-nav');
+
+            navToggle.addEventListener('click', () => {
+                appContainer.classList.add('nav-open');
+            });
+
+            closeNav.addEventListener('click', () => {
+                appContainer.classList.remove('nav-open');
+            });
+
+            // Copy code functionality
+            async function copyCode() {
+                // Get the code content without line numbers
+                const codeContent = document.querySelector('.code-content');
+                if (!codeContent) return;
+
+                // Get all text nodes from the code content, excluding line numbers
+                const code = codeContent.innerText;
+
+                try {
+                    await navigator.clipboard.writeText(code);
+                    const copyBtn = document.getElementById('copy-btn');
+                    const icon = copyBtn.querySelector('i');
+                    const text = copyBtn.querySelector('.btn-text');
+                    
+                    icon.className = 'fas fa-check';
+                    text.textContent = 'Copied!';
+                    
+                    setTimeout(() => {
+                        icon.className = 'far fa-copy';
+                        text.textContent = 'Copy';
+                    }, 2000);
+                } catch (err) {
+                    console.error('Failed to copy text:', err);
+                }
+            }
+        </script>
+    </body>
+</html>
