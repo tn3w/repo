@@ -47,47 +47,93 @@ lazy_static! {
         tags.insert("li");
         tags.insert("span");
         tags.insert("div");
+        tags.insert("img");
+        tags.insert("a");
+        tags.insert("hr");
+        tags.insert("table");
+        tags.insert("thead");
+        tags.insert("tbody");
+        tags.insert("tr");
+        tags.insert("th");
+        tags.insert("td");
+        tags.insert("del");
+        tags.insert("input");
+        tags.insert("details");
+        tags.insert("summary");
 
         let mut tag_attributes = HashMap::new();
         let mut a_attrs = HashSet::new();
         a_attrs.insert("href");
         a_attrs.insert("title");
+        a_attrs.insert("target");
         tag_attributes.insert("a", a_attrs);
 
-        let mut code_attrs = HashSet::new();
-        code_attrs.insert("class");
-        code_attrs.insert("style");
-        tag_attributes.insert("code", code_attrs);
+        let mut img_attrs = HashSet::new();
+        img_attrs.insert("src");
+        img_attrs.insert("alt");
+        img_attrs.insert("title");
+        img_attrs.insert("width");
+        img_attrs.insert("height");
+        tag_attributes.insert("img", img_attrs);
 
-        let mut span_attrs = HashSet::new();
-        span_attrs.insert("class");
-        span_attrs.insert("style");
-        tag_attributes.insert("span", span_attrs);
+        let mut p_attrs = HashSet::new();
+        p_attrs.insert("align");
+        tag_attributes.insert("p", p_attrs);
 
-        let mut div_attrs = HashSet::new();
-        div_attrs.insert("class");
-        div_attrs.insert("style");
-        tag_attributes.insert("div", div_attrs);
+        let mut h1_attrs = HashSet::new();
+        h1_attrs.insert("align");
+        tag_attributes.insert("h1", h1_attrs);
 
-        let mut pre_attrs = HashSet::new();
-        pre_attrs.insert("class");
-        pre_attrs.insert("style");
-        tag_attributes.insert("pre", pre_attrs);
+        let mut h2_attrs = HashSet::new();
+        h2_attrs.insert("align");
+        tag_attributes.insert("h2", h2_attrs);
+
+        let mut h3_attrs = HashSet::new();
+        h3_attrs.insert("align");
+        tag_attributes.insert("h3", h3_attrs);
+
+        let mut h4_attrs = HashSet::new();
+        h4_attrs.insert("align");
+        tag_attributes.insert("h4", h4_attrs);
+
+        let mut h5_attrs = HashSet::new();
+        h5_attrs.insert("align");
+        tag_attributes.insert("h5", h5_attrs);
+
+        let mut h6_attrs = HashSet::new();
+        h6_attrs.insert("align");
+        tag_attributes.insert("h6", h6_attrs);
+
+        let mut input_attrs = HashSet::new();
+        input_attrs.insert("type");
+        input_attrs.insert("checked");
+        input_attrs.insert("disabled");
+        tag_attributes.insert("input", input_attrs);
+
+        let mut th_attrs = HashSet::new();
+        th_attrs.insert("align");
+        tag_attributes.insert("th", th_attrs);
+
+        let mut td_attrs = HashSet::new();
+        td_attrs.insert("align");
+        tag_attributes.insert("td", td_attrs);
 
         let mut url_schemes = HashSet::new();
         url_schemes.insert("http");
         url_schemes.insert("https");
         url_schemes.insert("mailto");
 
-        let mut generic_attributes = HashSet::new();
-        generic_attributes.insert("style");
+        let mut allowed_classes = HashMap::new();
+        let mut input_classes = HashSet::new();
+        input_classes.insert("task-list-item-checkbox");
+        allowed_classes.insert("input", input_classes);
 
         builder
             .tags(tags)
             .tag_attributes(tag_attributes)
             .link_rel(Some("noopener noreferrer"))
             .url_schemes(url_schemes)
-            .generic_attributes(generic_attributes);
+            .allowed_classes(allowed_classes);
         builder
     };
 }
@@ -245,29 +291,24 @@ fn is_path_allowed(path: &Path, check_gitignore: bool, workspace_root: &str) -> 
 }
 
 fn get_file_info(path: &Path, workspace_root: &str) -> Option<FileInfo> {
-    // Get metadata, but don't follow symlinks
     let metadata = match fs::symlink_metadata(path) {
         Ok(m) => m,
         Err(_) => return None,
     };
     
-    // Skip symlinks
     if metadata.file_type().is_symlink() {
         return None;
     }
 
-    // Skip files larger than the limit
     if !metadata.is_dir() && metadata.len() > MAX_FILE_SIZE {
         return None;
     }
 
-    // Get the filename, return None if we can't get it
     let name = match path.file_name() {
         Some(name) => name.to_string_lossy().into_owned(),
         None => return None,
     };
 
-    // Convert both paths to canonical form for reliable path operations
     let canonical_path = match path.canonicalize() {
         Ok(p) => p,
         Err(_) => return None,
@@ -278,13 +319,11 @@ fn get_file_info(path: &Path, workspace_root: &str) -> Option<FileInfo> {
         Err(_) => return None,
     };
 
-    // Get relative path from workspace root
     let rel_path = match canonical_path.strip_prefix(&canonical_workspace) {
         Ok(p) => p.to_string_lossy().into_owned(),
         Err(_) => return None,
     };
 
-    // Get last modified time
     let last_modified = match metadata.modified() {
         Ok(time) => DateTime::<Local>::from(time).format("%b %d, %Y %H:%M").to_string(),
         Err(_) => return None,
@@ -323,9 +362,7 @@ fn highlight_code(path: &Path, content: &str, ss: &SyntaxSet, ts: &ThemeSet) -> 
     let dark_theme = &ts.themes["base16-eighties.dark"];
 
     let process_html = |html: String| {
-        let clean_html = AMMONIA_BUILDER.clean(&html).to_string();
-
-        let html = clean_html.replace(r#"<pre style="background-color:#2b303b;">"#, "<pre>");
+        let html = html.replace(r#"<pre style="background-color:#2b303b;">"#, "<pre>");
 
         let lines: Vec<&str> = content.lines().collect();
         let line_count = lines.len();
@@ -371,14 +408,11 @@ fn render_markdown(content: &str, base_path: &str) -> String {
 
     let parser = Parser::new_ext(content, options);
     
-    // Convert to HTML first
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
 
-    // Clean the HTML output with ammonia to only allow safe elements and attributes
     let clean_html = AMMONIA_BUILDER.clean(&html_output).to_string();
 
-    // Fix relative URLs
     clean_html
         .replace("src=\"./", &format!("src=\"/{}/", base_path))
         .replace("href=\"./", &format!("href=\"/{}/", base_path))
