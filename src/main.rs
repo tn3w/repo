@@ -15,6 +15,7 @@ use syntect::html::highlighted_html_for_string;
 use syntect::parsing::SyntaxSet;
 use tera::{Context, Tera};
 use walkdir::WalkDir;
+use zip::write::ExtendedFileOptions;
 use zip::{write::FileOptions, ZipWriter};
 
 const DEFAULT_WORKSPACE_ROOT: &str = "/etc/tn3wrepo/Projects";
@@ -302,7 +303,7 @@ fn create_zip_file(directory_path: &Path, workspace_root: &str) -> Option<Vec<u8
     let buffer = Vec::new();
     let cursor = std::io::Cursor::new(buffer);
     let mut zip = ZipWriter::new(cursor);
-    let options = FileOptions::default()
+    let options: FileOptions<ExtendedFileOptions> = FileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o755);
 
@@ -324,7 +325,7 @@ fn create_zip_file(directory_path: &Path, workspace_root: &str) -> Option<Vec<u8
         }
 
         if path.is_file() {
-            zip.start_file(name.to_string_lossy(), options).ok()?;
+            zip.start_file(name.to_string_lossy(), options.clone()).ok()?;
             let content = fs::read(path).ok()?;
             zip.write_all(&content).ok()?;
         }
