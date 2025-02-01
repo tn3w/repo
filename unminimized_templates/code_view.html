@@ -947,10 +947,7 @@
                             </a>
                         </div>
                     </div>
-                    <div class="code-body">
-                        <div class="dark-code"><div class="code-with-lines">{{ highlighted_dark_code | safe }}</div></div>
-                        <div class="light-code"><div class="code-with-lines">{{ highlighted_light_code | safe }}</div></div>
-                    </div>
+                    <div class="code-body">{{ highlighted_code | safe }}</div>
                 </div>
                 {% endif %}
             </div>

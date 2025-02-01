@@ -12,7 +12,7 @@ use html_escape::encode_text;
 use humansize::{format_size, BINARY};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use lazy_static::lazy_static;
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{html, Options, Parser, Event, Tag, CodeBlockKind, TagEnd};
 use serde::Serialize;
 use syntect::highlighting::ThemeSet;
 use syntect::html::highlighted_html_for_string;
@@ -30,6 +30,32 @@ lazy_static! {
         let favicon_path = Path::new("favicon.ico");
         fs::read(favicon_path).ok()
     };
+
+    static ref AMMONIA_CODE_BUILDER: Builder<'static> = {
+        let mut builder = Builder::new();
+        let mut tags = HashSet::new();
+        tags.insert("div");
+        tags.insert("span");
+        tags.insert("pre");
+        tags.insert("code");
+
+        let mut tag_attributes = HashMap::new();
+        let mut div_attrs = HashSet::new();
+        div_attrs.insert("class");
+        tag_attributes.insert("div", div_attrs);
+
+        let mut span_attrs = HashSet::new();
+        span_attrs.insert("class");
+        span_attrs.insert("style");
+        tag_attributes.insert("span", span_attrs);
+
+        builder
+            .tags(tags)
+            .tag_attributes(tag_attributes)
+            .clean_content_tags(HashSet::new());
+        builder
+    };
+
     static ref AMMONIA_BUILDER: Builder<'static> = {
         let mut builder = Builder::new();
         let mut tags = HashSet::new();
@@ -163,8 +189,7 @@ struct TemplateData {
     dir_contents: Vec<FileInfo>,
     parent_dir: Option<String>,
     workspace_root: String,
-    highlighted_dark_code: Option<String>,
-    highlighted_light_code: Option<String>,
+    highlighted_code: Option<String>,
     lines_count: Option<usize>,
     file_size: Option<String>,
     last_modified: Option<String>,
@@ -184,8 +209,7 @@ impl TemplateData {
         context.insert("dir_contents", &self.dir_contents);
         context.insert("parent_dir", &self.parent_dir);
         context.insert("workspace_root", &self.workspace_root);
-        context.insert("highlighted_dark_code", &self.highlighted_dark_code);
-        context.insert("highlighted_light_code", &self.highlighted_light_code);
+        context.insert("highlighted_code", &self.highlighted_code);
         context.insert("lines_count", &self.lines_count);
         context.insert("file_size", &self.file_size);
         context.insert("last_modified", &self.last_modified);
@@ -353,13 +377,13 @@ fn is_binary_file(path: &Path) -> bool {
     true
 }
 
-#[derive(Debug)]
-struct ThemedCode {
-    light: String,
-    dark: String,
-}
-
-fn highlight_code(path: &Path, content: &str, ss: &SyntaxSet, ts: &ThemeSet) -> ThemedCode {
+fn highlight_code(
+    path: &Path,
+    content: &str,
+    ss: &SyntaxSet,
+    ts: &ThemeSet,
+    with_line_numbers: bool,
+) -> String {
     let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
 
     let syntax = ss
@@ -370,7 +394,9 @@ fn highlight_code(path: &Path, content: &str, ss: &SyntaxSet, ts: &ThemeSet) -> 
     let dark_theme = &ts.themes["base16-eighties.dark"];
 
     let process_html = |html: String| {
-        let html = html.replace(r#"<pre style="background-color:#2b303b;">"#, "<pre>");
+        if !with_line_numbers {
+            return html;
+        }
 
         let lines: Vec<&str> = content.lines().collect();
         let line_count = lines.len();
@@ -393,21 +419,30 @@ fn highlight_code(path: &Path, content: &str, ss: &SyntaxSet, ts: &ThemeSet) -> 
         )
     };
 
-    let light_html = highlighted_html_for_string(content, ss, syntax, light_theme)
-        .map(|html| process_html(html))
-        .unwrap_or_else(|_| encode_text(&content).to_string());
-
     let dark_html = highlighted_html_for_string(content, ss, syntax, dark_theme)
         .map(|html| process_html(html))
         .unwrap_or_else(|_| encode_text(&content).to_string());
 
-    ThemedCode {
-        light: light_html,
-        dark: dark_html,
-    }
+    let light_html = highlighted_html_for_string(content, ss, syntax, light_theme)
+        .map(|html| process_html(html))
+        .unwrap_or_else(|_| encode_text(&content).to_string());
+
+    let wrap_code = |html: &str| {
+        if with_line_numbers {
+            format!(r#"<div class="code-with-lines">{}</div>"#, html)
+        } else {
+            html.to_string()
+        }
+    };
+
+    format!(
+        r#"<div class="dark-code">{}</div><div class="light-code">{}</div>"#,
+        wrap_code(&dark_html),
+        wrap_code(&light_html)
+    )
 }
 
-fn render_markdown(content: &str, base_path: &str) -> String {
+fn render_markdown(content: &str, base_path: &str, ss: &SyntaxSet, ts: &ThemeSet) -> String {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_FOOTNOTES);
@@ -417,11 +452,109 @@ fn render_markdown(content: &str, base_path: &str) -> String {
     let parser = Parser::new_ext(content, options);
 
     let mut html_output = String::new();
-    html::push_html(&mut html_output, parser);
+    let mut in_code_block = false;
+    let mut current_code = String::new();
+    let mut current_lang = String::new();
+    let mut code_blocks = Vec::new();
+    let placeholder_prefix = "__CODE_BLOCK_PLACEHOLDER_";
+
+    for event in parser {
+        match event {
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) => {
+                in_code_block = true;
+                current_lang = lang.to_string();
+                current_code.clear();
+                continue;
+            }
+            Event::End(TagEnd::CodeBlock) if in_code_block => {
+                let extension = match current_lang.as_str() {
+                    "rust" | "rs" => "rs",
+                    "c" => "c",
+                    "cpp" | "c++" | "cxx" | "cc" => "cpp",
+                    "h" | "hpp" | "hxx" | "hh" => "h",
+                    "asm" | "s" => "asm",
+                    "javascript" | "js" | "jsx" => "js",
+                    "typescript" | "ts" | "tsx" => "ts",
+                    "html" | "htm" | "xhtml" => "html",
+                    "css" | "scss" | "sass" | "less" => "css",
+                    "php" => "php",
+                    "vue" => "vue",
+                    "svelte" => "svelte",
+                    "python" | "py" | "pyw" | "pyx" => "py",
+                    "ruby" | "rb" | "rbw" => "rb",
+                    "perl" | "pl" | "pm" => "pl",
+                    "lua" => "lua",
+                    "tcl" => "tcl",
+                    "java" => "java",
+                    "kotlin" | "kt" => "kt",
+                    "groovy" => "groovy",
+                    "scala" => "scala",
+                    "clojure" | "clj" => "clj",
+                    "cs" | "csharp" => "cs",
+                    "fs" | "fsharp" => "fs",
+                    "vb" => "vb",
+                    "shell" | "sh" | "bash" | "zsh" | "fish" => "sh",
+                    "powershell" | "ps1" => "ps1",
+                    "batch" | "bat" | "cmd" => "bat",
+                    "go" | "golang" => "go",
+                    "swift" => "swift",
+                    "r" => "r",
+                    "matlab" | "m" => "matlab",
+                    "haskell" | "hs" => "hs",
+                    "elixir" | "ex" | "exs" => "ex",
+                    "erlang" | "erl" => "erl",
+                    "ocaml" | "ml" => "ml",
+                    "lisp" | "el" => "lisp",
+                    "scheme" | "scm" => "scm",
+                    "dart" => "dart",
+                    "d" => "d",
+                    "json" => "json",
+                    "yaml" | "yml" => "yaml",
+                    "toml" => "toml",
+                    "xml" => "xml",
+                    "sql" => "sql",
+                    "graphql" | "gql" => "graphql",
+                    "protobuf" | "proto" => "proto",
+                    "markdown" | "md" => "md",
+                    "tex" | "latex" => "tex",
+                    "rst" => "rst",
+                    "asciidoc" | "adoc" => "adoc",
+                    _ => "txt",
+                };
+                
+                let temp_path_str = format!("temp_{}.{}", code_blocks.len(), extension);
+                let temp_path = Path::new(&temp_path_str);
+                let highlighted = highlight_code(temp_path, &current_code, ss, ts, false);
+                let clean_highlighted = AMMONIA_CODE_BUILDER.clean(&highlighted).to_string();
+                let placeholder = format!("{}{}_END", placeholder_prefix, code_blocks.len());
+                
+                code_blocks.push(clean_highlighted);
+                html_output.push_str(&placeholder);
+                
+                in_code_block = false;
+                current_code.clear();
+                current_lang.clear();
+                continue;
+            }
+            Event::Text(text) if in_code_block => {
+                current_code.push_str(&text);
+                continue;
+            }
+            _ => {}
+        }
+
+        html::push_html(&mut html_output, std::iter::once(event));
+    }
 
     let clean_html = AMMONIA_BUILDER.clean(&html_output).to_string();
 
-    clean_html
+    let mut final_html = clean_html;
+    for (i, code) in code_blocks.iter().enumerate() {
+        let placeholder = format!("{}{}_END", placeholder_prefix, i);
+        final_html = final_html.replace(&placeholder, code);
+    }
+
+    final_html
         .replace("src=\"./", &format!("src=\"/{}/", base_path))
         .replace("href=\"./", &format!("href=\"/{}/", base_path))
 }
@@ -447,6 +580,8 @@ fn parse_about_file(path: &Path) -> Option<(Vec<String>, Option<String>)> {
 fn get_project_content(
     project_path: &Path,
     workspace_root: &str,
+    ss: &SyntaxSet,
+    ts: &ThemeSet,
 ) -> (Option<String>, Vec<String>, Option<String>, Option<String>) {
     let mut content = None;
     let mut tags = Vec::new();
@@ -456,7 +591,7 @@ fn get_project_content(
     let readme_path = project_path.join("README.md");
     if readme_path.exists() && is_path_allowed(&readme_path, true, workspace_root) {
         if let Ok(readme_content) = fs::read_to_string(&readme_path) {
-            content = Some(render_markdown(&readme_content, workspace_root));
+            content = Some(render_markdown(&readme_content, workspace_root, ss, ts));
             source_file = Some("README.md".to_string());
         }
     }
@@ -467,7 +602,7 @@ fn get_project_content(
             if content.is_none() {
                 content = about_sent
                     .clone()
-                    .map(|s| render_markdown(&s, workspace_root));
+                    .map(|s| render_markdown(&s, workspace_root, ss, ts));
                 source_file = Some("ABOUT".to_string());
             }
             tags = about_tags;
@@ -577,8 +712,7 @@ async fn index(data: web::Data<Arc<AppState>>) -> Result<HttpResponse> {
         dir_contents: Vec::new(),
         parent_dir: None,
         workspace_root: workspace_root.clone(),
-        highlighted_dark_code: None,
-        highlighted_light_code: None,
+        highlighted_code: None,
         lines_count: None,
         file_size: None,
         last_modified: None,
@@ -739,8 +873,7 @@ async fn view_path(
             dir_contents: Vec::new(),
             parent_dir: None,
             workspace_root: workspace_root.clone(),
-            highlighted_dark_code: None,
-            highlighted_light_code: None,
+            highlighted_code: None,
             lines_count: None,
             file_size: None,
             last_modified: None,
@@ -795,11 +928,20 @@ async fn view_path(
     };
 
     let dir_contents = get_directory_contents(&current_dir, true, workspace_root);
-    let parent_dir = if current_dir != Path::new(workspace_root) {
-        current_dir
-            .parent()
-            .and_then(|p| p.strip_prefix(workspace_root).ok())
-            .map(|p| p.to_string_lossy().into_owned())
+    
+    let parent_dir = if let (Ok(canonical_current), Ok(canonical_workspace)) = (
+        current_dir.canonicalize(),
+        Path::new(workspace_root).canonicalize(),
+    ) {
+        if canonical_current == canonical_workspace {
+            None
+        } else {
+            canonical_current
+                .strip_prefix(&canonical_workspace)
+                .ok()
+                .and_then(|rel_path| rel_path.parent())
+                .map(|p| p.to_string_lossy().into_owned())
+        }
     } else {
         None
     };
@@ -811,8 +953,7 @@ async fn view_path(
         dir_contents,
         parent_dir,
         workspace_root: workspace_root.clone(),
-        highlighted_dark_code: None,
-        highlighted_light_code: None,
+        highlighted_code: None,
         lines_count: None,
         file_size: None,
         last_modified: None,
@@ -843,11 +984,15 @@ async fn view_path(
         let file_info = get_file_info(&canonical_path, workspace_root)
             .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
 
-        let highlighted_code =
-            highlight_code(&canonical_path, &content, &data.syntax_set, &data.theme_set);
+        let highlighted_code = highlight_code(
+            &canonical_path,
+            &content,
+            &data.syntax_set,
+            &data.theme_set,
+            true,
+        );
 
-        context.highlighted_dark_code = Some(highlighted_code.dark);
-        context.highlighted_light_code = Some(highlighted_code.light);
+        context.highlighted_code = Some(AMMONIA_CODE_BUILDER.clean(&highlighted_code).to_string());
         context.lines_count = Some(content.lines().count());
         context.file_size = Some(file_info.size);
         context.last_modified = Some(file_info.last_modified);
@@ -884,7 +1029,7 @@ async fn view_path(
     }
 
     let (content, tags, source_file, about_sentence) =
-        get_project_content(&canonical_path, &workspace_root);
+        get_project_content(&canonical_path, &workspace_root, &data.syntax_set, &data.theme_set);
     context.project_name = Some(
         canonical_path
             .file_name()
