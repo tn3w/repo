@@ -12,7 +12,7 @@ use html_escape::encode_text;
 use humansize::{format_size, BINARY};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use lazy_static::lazy_static;
-use pulldown_cmark::{html, Options, Parser, Event, Tag, CodeBlockKind, TagEnd};
+use pulldown_cmark::{html, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use serde::Serialize;
 use syntect::highlighting::ThemeSet;
 use syntect::html::highlighted_html_for_string;
@@ -30,7 +30,6 @@ lazy_static! {
         let favicon_path = Path::new("favicon.ico");
         fs::read(favicon_path).ok()
     };
-
     static ref AMMONIA_CODE_BUILDER: Builder<'static> = {
         let mut builder = Builder::new();
         let mut tags = HashSet::new();
@@ -55,7 +54,6 @@ lazy_static! {
             .clean_content_tags(HashSet::new());
         builder
     };
-
     static ref AMMONIA_BUILDER: Builder<'static> = {
         let mut builder = Builder::new();
         let mut tags = HashSet::new();
@@ -521,16 +519,16 @@ fn render_markdown(content: &str, base_path: &str, ss: &SyntaxSet, ts: &ThemeSet
                     "asciidoc" | "adoc" => "adoc",
                     _ => "txt",
                 };
-                
+
                 let temp_path_str = format!("temp_{}.{}", code_blocks.len(), extension);
                 let temp_path = Path::new(&temp_path_str);
                 let highlighted = highlight_code(temp_path, &current_code, ss, ts, false);
                 let clean_highlighted = AMMONIA_CODE_BUILDER.clean(&highlighted).to_string();
                 let placeholder = format!("{}{}_END", placeholder_prefix, code_blocks.len());
-                
+
                 code_blocks.push(clean_highlighted);
                 html_output.push_str(&placeholder);
-                
+
                 in_code_block = false;
                 current_code.clear();
                 current_lang.clear();
@@ -928,7 +926,7 @@ async fn view_path(
     };
 
     let dir_contents = get_directory_contents(&current_dir, true, workspace_root);
-    
+
     let parent_dir = if let (Ok(canonical_current), Ok(canonical_workspace)) = (
         current_dir.canonicalize(),
         Path::new(workspace_root).canonicalize(),
@@ -1028,8 +1026,12 @@ async fn view_path(
             .body(body));
     }
 
-    let (content, tags, source_file, about_sentence) =
-        get_project_content(&canonical_path, &workspace_root, &data.syntax_set, &data.theme_set);
+    let (content, tags, source_file, about_sentence) = get_project_content(
+        &canonical_path,
+        &workspace_root,
+        &data.syntax_set,
+        &data.theme_set,
+    );
     context.project_name = Some(
         canonical_path
             .file_name()
