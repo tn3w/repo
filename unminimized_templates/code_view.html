@@ -7,7 +7,6 @@
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
         <style>
             :root {
-                /* GitHub Dark Theme Colors - Updated for consistency */
                 --color-canvas-default: #0d1117;
                 --color-canvas-subtle: #161b22;
                 --color-border-default: #30363d;
@@ -33,7 +32,6 @@
                 background-color: var(--color-code-bg) !important;
             }
 
-            /* Inline code */
             code {
                 background-color: var(--color-code-bg);
                 border-radius: 3px;
@@ -47,7 +45,6 @@
 
             @media (prefers-color-scheme: light) {
                 :root {
-                    /* GitHub Light Theme Colors */
                     --color-canvas-default: #ffffff;
                     --color-canvas-subtle: #f6f8fa;
                     --color-border-default: #d0d7de;
@@ -68,12 +65,10 @@
                     --color-accent-subtle: rgba(9, 105, 218, 0.1);
                 }
 
-                /* Light theme folder icon color */
                 .item-icon .fa-folder {
                     color: #54a3ff;
                 }
 
-                /* Light theme active item background */
                 .directory-tree .directory-item.active .directory-link {
                     background-color: var(--color-accent-subtle);
                     color: var(--color-accent-fg);
@@ -112,7 +107,6 @@
                 background: rgba(100, 100, 100, 0.7);
             }
 
-            /* App Layout */
             .app-container {
                 display: grid;
                 grid-template-columns: 300px 1fr;
@@ -124,7 +118,6 @@
                 margin-left: 5px;
             }
 
-            /* Directory Panel */
             .directory-panel {
                 background-color: var(--color-canvas-subtle);
                 border-right: 1px solid var(--color-border-default);
@@ -190,14 +183,12 @@
                 background-color: var(--color-btn-hover-bg);
             }
 
-            /* Main Content */
             .main-content {
                 height: 100vh;
                 overflow-y: auto;
                 padding: 0 16px 16px;
             }
 
-            /* Breadcrumb styles */
             .breadcrumb {
                 display: flex;
                 align-items: center;
@@ -232,7 +223,6 @@
                 flex-shrink: 0;
             }
 
-            /* Repository-specific breadcrumb styles */
             .nav-bar {
                 position: sticky;
                 top: 0;
@@ -245,7 +235,7 @@
             .nav-left {
                 display: flex;
                 align-items: center;
-                min-width: 0; /* Allow flex shrinking */
+                min-width: 0;
             }
 
             .logo i {
@@ -255,7 +245,7 @@
             .nav-right {
                 display: flex;
                 align-items: center;
-                flex-shrink: 0; /* Prevent GitHub link from shrinking */
+                flex-shrink: 0;
             }
 
             .nav-link {
@@ -274,7 +264,6 @@
                 background-color: var(--color-btn-hover-bg);
             }
 
-            /* Directory Listing */
             .directory-container {
                 border: 1px solid var(--color-border-default);
                 border-radius: 6px;
@@ -321,7 +310,6 @@
                 text-overflow: ellipsis;
             }
 
-            /* Remove unused styles */
             .item-meta,
             .item-download {
                 display: none;
@@ -472,7 +460,6 @@
                 color: var(--color-fg-default);
             }
 
-            /* Responsive styles */
             @media (max-width: 1024px) {
                 .app-container {
                     grid-template-columns: 250px 1fr;
@@ -595,7 +582,6 @@
                 }
             }
 
-            /* Dark overlay for mobile navigation */
             .nav-open::before {
                 content: '';
                 position: fixed;
@@ -657,7 +643,6 @@
                 gap: 8px;
             }
 
-            /* Code with line numbers */
             .code-with-lines {
                 display: flex;
                 width: 100%;
@@ -708,14 +693,12 @@
                 font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
             }
 
-            /* Syntax highlighting line height */
             .highlight span {
                 line-height: 20px;
                 height: 20px;
                 display: inline-block;
             }
 
-            /* Ensure line numbers don't get copied */
             .line-numbers::selection {
                 background: transparent;
             }
@@ -732,7 +715,6 @@
                 background: transparent;
             }
 
-            /* Code container styling */
             .code-container {
                 border: 1px solid var(--color-border-default);
                 border-radius: 6px;
@@ -745,7 +727,6 @@
                 background-color: var(--color-canvas-subtle);
             }
 
-            /* Base navigation styles */
             .nav-content {
                 width: 100%;
                 padding: 0 16px;
@@ -755,7 +736,6 @@
                 box-sizing: border-box;
             }
 
-            /* Code view specific navigation */
             .file-navigation .nav-content {
                 padding: 0;
             }
@@ -772,7 +752,6 @@
                 flex-shrink: 0;
             }
 
-            /* Common navigation elements */
             .nav-link {
                 display: flex;
                 align-items: center;
@@ -805,7 +784,6 @@
                 display: flex;
             }
 
-            /* Responsive styles */
             @media (max-width: 768px) {
                 .nav-content {
                     padding: 0 8px;
@@ -835,7 +813,6 @@
     </head>
     <body>
         <div class="app-container">
-            <!-- Side Directory Panel -->
             <div class="directory-panel">
                 <div class="directory-header">
                     <div class="header-title">
@@ -873,8 +850,6 @@
                     {% endfor %}
                 </div>
             </div>
-
-            <!-- Main Content -->
             <div class="main-content">
                 <div class="file-navigation">
                     <div class="nav-content">
@@ -905,7 +880,6 @@
                         </div>
                     </div>
                 </div>
-
                 {% if is_dir %}
                 <div class="directory-container">
                     <div class="directory-header">
@@ -981,9 +955,7 @@
                 {% endif %}
             </div>
         </div>
-
         <script>
-            // Mobile navigation
             const appContainer = document.querySelector('.app-container');
             const navToggle = document.querySelector('.mobile-link');
             const closeNav = document.querySelector('.close-nav');
@@ -996,13 +968,10 @@
                 appContainer.classList.remove('nav-open');
             });
 
-            // Copy code functionality
             async function copyCode() {
-                // Get the code content without line numbers
                 const codeContent = document.querySelector('.code-content');
                 if (!codeContent) return;
 
-                // Get all text nodes from the code content, excluding line numbers
                 const code = codeContent.innerText;
 
                 try {

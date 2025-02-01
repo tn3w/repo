@@ -26,6 +26,10 @@ const DEFAULT_WORKSPACE_ROOT: &str = "/etc/tn3wrepo/Projects";
 const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10MB limit
 
 lazy_static! {
+    static ref FAVICON_ICO: Option<Vec<u8>> = {
+        let favicon_path = Path::new("favicon.ico");
+        fs::read(favicon_path).ok()
+    };
     static ref AMMONIA_BUILDER: Builder<'static> = {
         let mut builder = Builder::new();
         let mut tags = HashSet::new();
@@ -608,6 +612,18 @@ async fn ping() -> Result<HttpResponse> {
         .body("pong"))
 }
 
+#[get("/favicon.ico")]
+async fn favicon_ico() -> Result<HttpResponse> {
+    if let Some(content) = FAVICON_ICO.as_ref() {
+        Ok(HttpResponse::Ok()
+            .content_type("image/x-icon")
+            .insert_header(("Cache-Control", "public, max-age=86400"))
+            .body(content.clone()))
+    } else {
+        Ok(HttpResponse::NotFound().finish())
+    }
+}
+
 #[get("/robots.txt")]
 async fn robots_txt() -> Result<HttpResponse> {
     Ok(HttpResponse::Ok()
@@ -971,6 +987,7 @@ async fn main() -> std::io::Result<()> {
             )
             .service(index)
             .service(ping)
+            .service(favicon_ico)
             .service(robots_txt)
             .service(download_file)
             .service(view_path)
