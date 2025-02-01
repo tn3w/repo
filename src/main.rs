@@ -1,14 +1,17 @@
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::collections::{HashMap, HashSet};
 
 use actix_web::{get, web, App, HttpResponse, HttpServer, Result};
+use ammonia::Builder;
 use chrono::{DateTime, Local};
+use html_escape::encode_text;
 use humansize::{format_size, BINARY};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use lazy_static::lazy_static;
 use pulldown_cmark::{html, Options, Parser};
 use serde::Serialize;
 use syntect::highlighting::ThemeSet;
@@ -18,9 +21,6 @@ use tera::{Context, Tera};
 use walkdir::WalkDir;
 use zip::write::ExtendedFileOptions;
 use zip::{write::FileOptions, ZipWriter};
-use html_escape::encode_text;
-use ammonia::Builder;
-use lazy_static::lazy_static;
 
 const DEFAULT_WORKSPACE_ROOT: &str = "/etc/tn3wrepo/Projects";
 const MAX_FILE_SIZE: u64 = 10 * 1024 * 1024; // 10MB limit
@@ -268,8 +268,8 @@ fn is_path_allowed(path: &Path, check_gitignore: bool, workspace_root: &str) -> 
 
     if rel_path.components().any(|c| {
         let name = c.as_os_str().to_string_lossy();
-        (name.starts_with('.') && name != ".gitignore") || 
-        (name == "ABOUT" && !path.ends_with("ABOUT"))
+        (name.starts_with('.') && name != ".gitignore")
+            || (name == "ABOUT" && !path.ends_with("ABOUT"))
     }) {
         return false;
     }
@@ -280,7 +280,9 @@ fn is_path_allowed(path: &Path, check_gitignore: bool, workspace_root: &str) -> 
 
     if check_gitignore {
         if let Some(gitignore) = get_gitignore(&project_root) {
-            let rel_to_project = canonical_path.strip_prefix(&project_root).unwrap_or(rel_path);
+            let rel_to_project = canonical_path
+                .strip_prefix(&project_root)
+                .unwrap_or(rel_path);
             if gitignore.matched(rel_to_project, false).is_ignore() {
                 return false;
             }
@@ -295,7 +297,7 @@ fn get_file_info(path: &Path, workspace_root: &str) -> Option<FileInfo> {
         Ok(m) => m,
         Err(_) => return None,
     };
-    
+
     if metadata.file_type().is_symlink() {
         return None;
     }
@@ -325,7 +327,9 @@ fn get_file_info(path: &Path, workspace_root: &str) -> Option<FileInfo> {
     };
 
     let last_modified = match metadata.modified() {
-        Ok(time) => DateTime::<Local>::from(time).format("%b %d, %Y %H:%M").to_string(),
+        Ok(time) => DateTime::<Local>::from(time)
+            .format("%b %d, %Y %H:%M")
+            .to_string(),
         Err(_) => return None,
     };
 
@@ -387,7 +391,7 @@ fn highlight_code(path: &Path, content: &str, ss: &SyntaxSet, ts: &ThemeSet) -> 
 
     let light_html = highlighted_html_for_string(content, ss, syntax, light_theme)
         .map(|html| process_html(html))
-        .unwrap_or_else(|_|encode_text(&content).to_string());
+        .unwrap_or_else(|_| encode_text(&content).to_string());
 
     let dark_html = highlighted_html_for_string(content, ss, syntax, dark_theme)
         .map(|html| process_html(html))
@@ -407,7 +411,7 @@ fn render_markdown(content: &str, base_path: &str) -> String {
     options.insert(Options::ENABLE_TASKLISTS);
 
     let parser = Parser::new_ext(content, options);
-    
+
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
 
@@ -496,7 +500,8 @@ fn create_zip_file(directory_path: &Path, workspace_root: &str) -> Option<Vec<u8
         }
 
         if path.is_file() {
-            zip.start_file(name.to_string_lossy(), options.clone()).ok()?;
+            zip.start_file(name.to_string_lossy(), options.clone())
+                .ok()?;
             let content = fs::read(path).ok()?;
             zip.write_all(&content).ok()?;
         }
@@ -590,7 +595,25 @@ async fn index(data: web::Data<Arc<AppState>>) -> Result<HttpResponse> {
             actix_web::error::ErrorInternalServerError("Template error")
         })?;
 
-    return Ok(HttpResponse::Ok().content_type("text/html").body(body));
+    return Ok(HttpResponse::Ok()
+        .content_type("text/html")
+        .insert_header(("Cache-Control", "public, max-age=86400"))
+        .body(body));
+}
+
+#[get("/ping")]
+async fn ping() -> Result<HttpResponse> {
+    Ok(HttpResponse::Ok()
+        .insert_header(("Cache-Control", "no-store"))
+        .body("pong"))
+}
+
+#[get("/robots.txt")]
+async fn robots_txt() -> Result<HttpResponse> {
+    Ok(HttpResponse::Ok()
+        .content_type("text/plain")
+        .insert_header(("Cache-Control", "public, max-age=86400"))
+        .body("User-agent: *\nAllow: /\n"))
 }
 
 #[get("/download/{path:.*}")]
@@ -626,9 +649,13 @@ async fn download_file(
 
     if canonical_path.is_dir() {
         if let Some(zip_data) = create_zip_file(&canonical_path, &workspace_root) {
-            let filename = format!("{}.zip", canonical_path.file_name().unwrap().to_string_lossy());
+            let filename = format!(
+                "{}.zip",
+                canonical_path.file_name().unwrap().to_string_lossy()
+            );
             return Ok(HttpResponse::Ok()
                 .content_type("application/zip")
+                .insert_header(("Cache-Control", "public, max-age=86400"))
                 .insert_header(("X-Content-Type-Options", "nosniff"))
                 .insert_header((
                     "Content-Disposition",
@@ -666,11 +693,12 @@ async fn download_file(
         _ => "application/octet-stream",
     };
 
-    let file_content = fs::read(&canonical_path)
-        .map_err(|_| actix_web::error::ErrorNotFound("File not found"))?;
+    let file_content =
+        fs::read(&canonical_path).map_err(|_| actix_web::error::ErrorNotFound("File not found"))?;
 
     Ok(HttpResponse::Ok()
         .content_type(content_type)
+        .insert_header(("Cache-Control", "public, max-age=86400"))
         .insert_header(("X-Content-Type-Options", "nosniff"))
         .insert_header((
             "Content-Disposition",
@@ -716,6 +744,7 @@ async fn view_path(
 
         return Ok(HttpResponse::Ok()
             .content_type("text/html; charset=utf-8")
+            .insert_header(("Cache-Control", "public, max-age=86400"))
             .insert_header(("X-Content-Type-Options", "nosniff"))
             .insert_header(("X-Frame-Options", "DENY"))
             .insert_header(("X-XSS-Protection", "1; mode=block"))
@@ -728,8 +757,8 @@ async fn view_path(
         Ok(p) => p,
         Err(err) => {
             println!("Error: {}", err);
-            return Err(actix_web::error::ErrorNotFound("Path not found"))
-        },
+            return Err(actix_web::error::ErrorNotFound("Path not found"));
+        }
     };
 
     if !is_path_allowed(&canonical_path, true, workspace_root) {
@@ -743,7 +772,10 @@ async fn view_path(
     let current_dir = if canonical_path.is_dir() {
         canonical_path.clone()
     } else {
-        canonical_path.parent().unwrap_or(&canonical_path).to_path_buf()
+        canonical_path
+            .parent()
+            .unwrap_or(&canonical_path)
+            .to_path_buf()
     };
 
     let dir_contents = get_directory_contents(&current_dir, true, workspace_root);
@@ -811,6 +843,7 @@ async fn view_path(
 
         return Ok(HttpResponse::Ok()
             .content_type("text/html; charset=utf-8")
+            .insert_header(("Cache-Control", "public, max-age=86400"))
             .insert_header(("X-Content-Type-Options", "nosniff"))
             .insert_header(("X-Frame-Options", "DENY"))
             .insert_header(("X-XSS-Protection", "1; mode=block"))
@@ -827,6 +860,7 @@ async fn view_path(
 
         return Ok(HttpResponse::Ok()
             .content_type("text/html; charset=utf-8")
+            .insert_header(("Cache-Control", "public, max-age=86400"))
             .insert_header(("X-Content-Type-Options", "nosniff"))
             .insert_header(("X-Frame-Options", "DENY"))
             .insert_header(("X-XSS-Protection", "1; mode=block"))
@@ -845,7 +879,10 @@ async fn view_path(
     context.about_content = content.map(|c| c.to_string());
     context.content_source = source_file;
     context.about_sentence = about_sentence.map(|s| encode_text(&s).to_string());
-    context.tags = tags.into_iter().map(|t| encode_text(&t).to_string()).collect();
+    context.tags = tags
+        .into_iter()
+        .map(|t| encode_text(&t).to_string())
+        .collect();
 
     let body = data
         .tera
@@ -854,6 +891,7 @@ async fn view_path(
 
     Ok(HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
+        .insert_header(("Cache-Control", "public, max-age=86400"))
         .insert_header(("X-Content-Type-Options", "nosniff"))
         .insert_header(("X-Frame-Options", "DENY"))
         .insert_header(("X-XSS-Protection", "1; mode=block"))
@@ -861,7 +899,7 @@ async fn view_path(
 }
 
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {    
+async fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
     let workspace_root: PathBuf = if args.len() > 1 {
         PathBuf::from(&args[1])
@@ -912,7 +950,10 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(app_state.clone()))
             .wrap(
                 actix_web::middleware::DefaultHeaders::new()
-                    .add(("Strict-Transport-Security", "max-age=31536000; includeSubDomains".to_string()))
+                    .add((
+                        "Strict-Transport-Security",
+                        "max-age=31536000; includeSubDomains".to_string(),
+                    ))
                     .add((
                         "Content-Security-Policy",
                         "default-src 'self'; \
@@ -920,11 +961,17 @@ async fn main() -> std::io::Result<()> {
                          style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; \
                          font-src 'self' https://cdnjs.cloudflare.com; \
                          img-src 'self' data: https:; \
-                         connect-src 'self';".to_string()
+                         connect-src 'self';"
+                            .to_string(),
                     ))
-                    .add(("Referrer-Policy", "strict-origin-when-cross-origin".to_string()))
+                    .add((
+                        "Referrer-Policy",
+                        "strict-origin-when-cross-origin".to_string(),
+                    )),
             )
             .service(index)
+            .service(ping)
+            .service(robots_txt)
             .service(download_file)
             .service(view_path)
     })
