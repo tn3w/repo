@@ -200,6 +200,7 @@ struct TemplateData {
     content_source: Option<String>,
     about_sentence: Option<String>,
     tags: Vec<String>,
+    is_binary: bool,
 }
 
 impl TemplateData {
@@ -220,6 +221,7 @@ impl TemplateData {
         context.insert("content_source", &self.content_source);
         context.insert("about_sentence", &self.about_sentence);
         context.insert("tags", &self.tags);
+        context.insert("is_binary", &self.is_binary);
         context
     }
 }
@@ -790,6 +792,7 @@ async fn index(data: web::Data<Arc<AppState>>) -> Result<HttpResponse> {
         content_source: None,
         about_sentence: None,
         tags: Vec::new(),
+        is_binary: false,
     };
 
     context.contents = get_directory_contents(Path::new(workspace_root), false, workspace_root);
@@ -951,6 +954,7 @@ async fn view_path(
             content_source: None,
             about_sentence: None,
             tags: Vec::new(),
+            is_binary: false,
         };
 
         context.contents = get_directory_contents(Path::new(workspace_root), false, workspace_root);
@@ -1031,6 +1035,7 @@ async fn view_path(
         content_source: None,
         about_sentence: None,
         tags: Vec::new(),
+        is_binary: false,
     };
 
     if !canonical_path.is_dir() {
@@ -1043,28 +1048,30 @@ async fn view_path(
             return Err(actix_web::error::ErrorForbidden("File too large"));
         }
 
-        if is_binary_file(&canonical_path) {
-            return Err(actix_web::error::ErrorBadRequest("Binary file"));
-        }
-
-        let content = fs::read_to_string(&canonical_path)
-            .map_err(|_| actix_web::error::ErrorNotFound("File not found"))?;
-
         let file_info = get_file_info(&canonical_path, workspace_root)
             .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
 
-        let highlighted_code = highlight_code(
-            &canonical_path,
-            &content,
-            &data.syntax_set,
-            &data.theme_set,
-            true,
-        );
-
-        context.highlighted_code = Some(AMMONIA_CODE_BUILDER.clean(&highlighted_code).to_string());
-        context.lines_count = Some(content.lines().count());
         context.file_size = Some(file_info.size);
         context.last_modified = Some(file_info.last_modified);
+
+        if is_binary_file(&canonical_path) {
+            context.is_binary = true;
+        } else {
+            let content = fs::read_to_string(&canonical_path)
+                .map_err(|_| actix_web::error::ErrorNotFound("File not found"))?;
+
+            let highlighted_code = highlight_code(
+                &canonical_path,
+                &content,
+                &data.syntax_set,
+                &data.theme_set,
+                true,
+            );
+
+            context.highlighted_code =
+                Some(AMMONIA_CODE_BUILDER.clean(&highlighted_code).to_string());
+            context.lines_count = Some(content.lines().count());
+        }
 
         let body = data
             .tera
