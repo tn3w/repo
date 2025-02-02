@@ -5,6 +5,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use actix_web::body::MessageBody;
+use actix_web::dev::ServiceResponse;
+use actix_web::http::StatusCode;
+use actix_web::middleware::{ErrorHandlerResponse, ErrorHandlers};
 use actix_web::{get, web, App, HttpResponse, HttpServer, Result};
 use ammonia::Builder;
 use chrono::{DateTime, Local};
@@ -225,6 +229,73 @@ struct AppState {
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
     config: AppConfig,
+}
+
+fn get_error_description(status_code: u16) -> (&'static str, &'static str) {
+    match status_code {
+        400 => ("Bad Request", "The server cannot process the request due to client error."),
+        401 => ("Unauthorized", "Authentication is required to access this resource."),
+        403 => ("Forbidden", "You don't have permission to access this resource."),
+        404 => ("Not Found", "The requested resource could not be found on this server."),
+        405 => ("Method Not Allowed", "The request method is not supported for this resource."),
+        406 => ("Not Acceptable", "The requested resource cannot generate content according to the Accept headers."),
+        408 => ("Request Timeout", "The server timed out waiting for the request."),
+        409 => ("Conflict", "The request conflicts with the current state of the server."),
+        410 => ("Gone", "The requested resource is no longer available and has been permanently removed."),
+        411 => ("Length Required", "The request did not specify the length of its content."),
+        412 => ("Precondition Failed", "The server does not meet one of the preconditions in the request."),
+        413 => ("Payload Too Large", "The request is larger than the server is willing or able to process."),
+        414 => ("URI Too Long", "The URI provided was too long for the server to process."),
+        415 => ("Unsupported Media Type", "The request entity has a media type which the server does not support."),
+        416 => ("Range Not Satisfiable", "The client has asked for a portion of the file that lies beyond its end."),
+        417 => ("Expectation Failed", "The server cannot meet the requirements of the Expect request-header field."),
+        418 => ("I'm a teapot", "The server refuses to brew coffee because it is, permanently, a teapot."),
+        422 => ("Unprocessable Entity", "The request was well-formed but was unable to be followed due to semantic errors."),
+        423 => ("Locked", "The resource that is being accessed is locked."),
+        424 => ("Failed Dependency", "The request failed due to failure of a previous request."),
+        428 => ("Precondition Required", "The origin server requires the request to be conditional."),
+        429 => ("Too Many Requests", "You have sent too many requests in a given amount of time."),
+        431 => ("Request Header Fields Too Large", "The server is unwilling to process the request because its header fields are too large."),
+        451 => ("Unavailable For Legal Reasons", "The requested resource is unavailable due to legal reasons."),
+        500 => ("Internal Server Error", "The server encountered an unexpected condition that prevented it from fulfilling the request."),
+        501 => ("Not Implemented", "The server does not support the functionality required to fulfill the request."),
+        502 => ("Bad Gateway", "The server received an invalid response from the upstream server."),
+        503 => ("Service Unavailable", "The server is currently unable to handle the request due to temporary overloading or maintenance."),
+        504 => ("Gateway Timeout", "The server did not receive a timely response from the upstream server."),
+        505 => ("HTTP Version Not Supported", "The server does not support the HTTP protocol version used in the request."),
+        _ => ("Unexpected Error", "An unexpected error occurred while processing your request."),
+    }
+}
+
+fn handle_error<B>(res: ServiceResponse<B>) -> Result<ErrorHandlerResponse<B>>
+where
+    B: MessageBody,
+{
+    let status_code = res.status().as_u16();
+    let (title, description) = get_error_description(status_code);
+
+    let mut context = Context::new();
+    context.insert("status_code", &status_code);
+    context.insert("title", &title);
+    context.insert("description", &description);
+
+    let app_state = res
+        .request()
+        .app_data::<web::Data<Arc<AppState>>>()
+        .unwrap();
+    let body = app_state
+        .tera
+        .render("error.html", &context)
+        .unwrap_or_else(|_| format!("Error {} - {}\n{}", status_code, title, description));
+
+    let response = HttpResponse::build(res.status())
+        .content_type("text/html; charset=utf-8")
+        .body(body);
+
+    Ok(ErrorHandlerResponse::Response(ServiceResponse::new(
+        res.request().clone(),
+        response.map_into_right_body::<B>(),
+    )))
 }
 
 fn get_gitignore(project_path: &Path) -> Option<Gitignore> {
@@ -1091,6 +1162,7 @@ async fn main() -> std::io::Result<()> {
         ("templates/index.html", Some("index.html")),
         ("templates/code_view.html", Some("code_view.html")),
         ("templates/repo_view.html", Some("repo_view.html")),
+        ("templates/error.html", Some("error.html")),
     ])
     .unwrap();
 
@@ -1131,6 +1203,39 @@ async fn main() -> std::io::Result<()> {
                         "Referrer-Policy",
                         "strict-origin-when-cross-origin".to_string(),
                     )),
+            )
+            .wrap(
+                ErrorHandlers::new()
+                    .handler(StatusCode::BAD_REQUEST, handle_error)
+                    .handler(StatusCode::UNAUTHORIZED, handle_error)
+                    .handler(StatusCode::FORBIDDEN, handle_error)
+                    .handler(StatusCode::NOT_FOUND, handle_error)
+                    .handler(StatusCode::METHOD_NOT_ALLOWED, handle_error)
+                    .handler(StatusCode::NOT_ACCEPTABLE, handle_error)
+                    .handler(StatusCode::REQUEST_TIMEOUT, handle_error)
+                    .handler(StatusCode::CONFLICT, handle_error)
+                    .handler(StatusCode::GONE, handle_error)
+                    .handler(StatusCode::LENGTH_REQUIRED, handle_error)
+                    .handler(StatusCode::PRECONDITION_FAILED, handle_error)
+                    .handler(StatusCode::PAYLOAD_TOO_LARGE, handle_error)
+                    .handler(StatusCode::URI_TOO_LONG, handle_error)
+                    .handler(StatusCode::UNSUPPORTED_MEDIA_TYPE, handle_error)
+                    .handler(StatusCode::RANGE_NOT_SATISFIABLE, handle_error)
+                    .handler(StatusCode::EXPECTATION_FAILED, handle_error)
+                    .handler(StatusCode::IM_A_TEAPOT, handle_error)
+                    .handler(StatusCode::UNPROCESSABLE_ENTITY, handle_error)
+                    .handler(StatusCode::LOCKED, handle_error)
+                    .handler(StatusCode::FAILED_DEPENDENCY, handle_error)
+                    .handler(StatusCode::PRECONDITION_REQUIRED, handle_error)
+                    .handler(StatusCode::TOO_MANY_REQUESTS, handle_error)
+                    .handler(StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE, handle_error)
+                    .handler(StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS, handle_error)
+                    .handler(StatusCode::INTERNAL_SERVER_ERROR, handle_error)
+                    .handler(StatusCode::NOT_IMPLEMENTED, handle_error)
+                    .handler(StatusCode::BAD_GATEWAY, handle_error)
+                    .handler(StatusCode::SERVICE_UNAVAILABLE, handle_error)
+                    .handler(StatusCode::GATEWAY_TIMEOUT, handle_error)
+                    .handler(StatusCode::HTTP_VERSION_NOT_SUPPORTED, handle_error),
             )
             .service(index)
             .service(ping)

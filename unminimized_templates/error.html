@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{% if status_code|default %}{{ status_code }} {% endif %}{{ title }}</title>
+        <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico">
+        <link rel="icon" type="image/x-icon" href="/favicon.ico">
+        <style>
+            :root {
+                --background: #0d1117;
+                --text: #c9d1d9;
+                --pre: #54a3ff;
+                --button-background: #4a4a4a;
+                --button-text: #ffffff;
+                --button-hover: #666666;
+            }
+
+            @media (prefers-color-scheme: light) {
+                :root {
+                    --background: #ffffff;
+                    --text: #24292f;
+                    --pre: #0969da;
+                    --button-background: #e0e0e0;
+                    --button-text: #333333;
+                    --button-hover: #cccccc;
+                }
+            }
+
+            * {
+                font-family: Arial, sans-serif;
+                color: var(--text);
+                text-align: center;
+            }
+
+            body {
+                margin: 0;
+                background-color: var(--background);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                padding: 0 20px;
+            }
+
+            pre {
+                font-size: 6px;
+                text-align: center;
+                color: var(--pre);
+                line-height: 6px;
+                font-weight: 900;
+            }
+
+            p {
+                max-width: 800px;
+                margin: 0.5rem 0 1rem 0;
+            }
+
+            h2 {
+                margin: 1rem 0 0.5rem 0;
+            }
+
+            a {
+                position: relative;
+                display: inline-block;
+                padding: 10px 60px;
+                margin-top: 1rem;
+                font-size: 1rem;
+                color: var(--button-text);
+                background-color: var(--button-background);
+                text-decoration: none;
+                border: none;
+                border-radius: 4px;
+                transition: background-color 0.2s ease;
+            }
+
+            a:hover {
+                background-color: var(--button-hover);
+            }
+        </style>
+    </head>
+    <body>
+        <pre>
+            :::.                                                    
+            :+++***++:..                                              
+    :-=+=..:-=+**=======---:                                            
+   -+++****+====-::-=====-::. ..   ..       ::                          
+  .=++++++=::----------::-::::::--------===--:.:::::.                   
+  :--==+++=-::----------======----------:-===-:::::::.                   
+  ::--==+++-----=+++=+++++====----======--==------::                     
+  ::::-====+++++++*************+==========---------::..                   
+  ..:::---==++*****************+++++++++=------------:::::..               
+  ....:::-=+**********************++++++=--==========--:.....               
+  ..:::-++*********+**************+++++++--+***++++==:      .::..          
+  :=+*+=+++****++==+++*+++++++***+++++++++***********+=. .::-====-::--:     
+  .:-=++=====+++*++====++++++++++++++++++=+++*************+=======++++==--.    
+  .--==-----=====++=============+=+++=====++++****************+=+=========--:.   
+  . .  :--====------=======--==========+++=====++++****+*****+****++===------====-.    
+  ...::::::::---====----------::::::-----========++++++++++***++++++++===--:::::-----.    
+  ...::::::..:::::---::::::::::...::::::::-----=++++++++++****+++++++===-:::::::::---:   
+  .::::.....:::::::::::................:::::=++++++++++*****++++++=====---:::::---::. 
+  ......   .........     ...............::=+==++++++++++++++============-----::...:
+                  ........::---===-===============------=---:::::::::...
+                  .......................::::::::---------:.   ..       
+                          ....................::::::--:::::.            
+                                           ...........
+        </pre>
+        <h2>{% if status_code|default %}{{ status_code }} {% endif %}{{ title }}</h2>
+        <p>{{ description }}</p>
+        <a id="button" href="/">Back to the main page</a>
+    </body>
+</html>
